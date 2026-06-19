@@ -150,11 +150,16 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       // If the role didn't call report_role_result, the agent_end fallback already
       // constructed a payload from the last assistant message.
       const payload = rec.sessionFile ? deps.reportState.payloads.get(rec.sessionFile) : undefined;
-      console.error(`[pi-roles:spawn_role_tool] rec.sessionFile=${rec.sessionFile} payloadFound=${!!payload} result=${payload ? "payload" : "fallback-text"}`);
+      const _diag = {
+        recSessionFile: rec.sessionFile,
+        payloadFound: !!payload,
+        activeRoleKeys: [...deps.reportState.activeRole.keys()],
+        payloadKeys: [...deps.reportState.payloads.keys()],
+      };
       const result = payload ?? rec.result;
 
       if (rec.status === "completed") {
-        return okResult({ status: "completed", result, agentId: id });
+        return okResult({ status: "completed", result, agentId: id, _diag });
       }
       if (rec.status === "aborted") {
         return okResult({ status: "aborted", error: rec.reason ?? "aborted", agentId: id });
