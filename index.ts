@@ -28,7 +28,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // per-session active-role map for accurate failedStep attribution and canSpawn
   // checks. Keyed by session file path so a long-lived runtime serving multiple
   // role sessions does not collide. activeRole is populated at spawn_role time.
-  const reportState: ReportState = { reported: new Set<string>(), activeRole: new Map<string, string>() };
+  const reportState: ReportState = { reported: new Set<string>(), activeRole: new Map<string, string>(), payloads: new Map() };
   pi.registerTool(makeReportTool({ state: reportState, schema: DEFAULT_REPORT_SCHEMA, failedStep: "default" }) as any);
 
   // Self-written execution layer (replaces @gotgenes/pi-subagents).

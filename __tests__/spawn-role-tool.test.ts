@@ -38,7 +38,7 @@ function deps(opts: {
 } = {}): { tool: any; deps: SpawnToolDeps; } {
   const roleRegistry = new Map<string, RoleDef>();
   (opts.roles ?? []).forEach(r => roleRegistry.set(r.name, r));
-  const reportState: ReportState = opts.reportState ?? { reported: new Set(), activeRole: new Map() };
+  const reportState: ReportState = opts.reportState ?? { reported: new Set(), activeRole: new Map(), payloads: new Map() };
   const d: SpawnToolDeps = {
     roleRegistry,
     service: opts.svc ?? fakeService().svc,
@@ -109,7 +109,7 @@ describe("spawn_role tool", () => {
 
   it("subagent caller whose role has canSpawn=false is REJECTED (anti-orchestrator-cascade)", async () => {
     const f = fakeService();
-    const rs: ReportState = { reported: new Set(), activeRole: new Map([["/tmp/child.jsonl", "reviewer"]]) };
+    const rs: ReportState = { reported: new Set(), activeRole: new Map([["/tmp/child.jsonl", "reviewer"]]), payloads: new Map() };
     const { tool } = deps({
       roles: [role("reviewer", { canSpawn: false })],
       svc: f.svc,
@@ -125,7 +125,7 @@ describe("spawn_role tool", () => {
 
   it("subagent caller whose role has canSpawn=true IS allowed (orchestrator role)", async () => {
     const f = fakeService();
-    const rs: ReportState = { reported: new Set(), activeRole: new Map([["/tmp/lead.jsonl", "lead"]]) };
+    const rs: ReportState = { reported: new Set(), activeRole: new Map([["/tmp/lead.jsonl", "lead"]]), payloads: new Map() };
     const { tool } = deps({
       roles: [role("lead", { canSpawn: true }), role("coder")],
       svc: f.svc,
@@ -177,9 +177,34 @@ describe("spawn_role tool", () => {
     assert.ok(f.calls[0].signal, "signal forwarded");
   });
 
+  it("structured payload from report_role_result (decision 4旁路 Map) preferred over assistant finalText", async () => {
+    // Fake service returns the child sessionFile + a completed record whose result
+    // is the assistant's last text (fallback). The旁路 Map carries the STRUCTURED
+    // payload {findings, artifacts} that report_role_result stored.
+    const f = fakeService({ id: "r1", status: "completed", result: "assistant trailing text", turnCount: 1 });
+    (f.svc as any).waitForResult = async () => ({ id: "r1", status: "completed", result: "assistant trailing text", turnCount: 1, sessionFile: "/tmp/child.jsonl" });
+    const rs: ReportState = { reported: new Set(), activeRole: new Map(), payloads: new Map([["/tmp/child.jsonl", { findings: ["f1", "f2"], artifacts: ["/a.ts"] }]]) };
+    const { tool } = deps({ roles: [role("reviewer")], svc: f.svc, reportState: rs });
+    const out = await exec(tool, { role: "reviewer", task: "x" });
+    assert.equal(out.details.status, "completed");
+    // Structured payload returned, NOT the assistant trailing text
+    assert.deepEqual(out.details.result, { findings: ["f1", "f2"], artifacts: ["/a.ts"] });
+    assert.notEqual(out.details.result, "assistant trailing text");
+  });
+
+  it("falls back to assistant finalText when no structured payload was reported (role didn't call report_role_result)", async () => {
+    const f = fakeService({ id: "r2", status: "completed", result: "just text, no report", turnCount: 1 });
+    (f.svc as any).waitForResult = async () => ({ id: "r2", status: "completed", result: "just text, no report", turnCount: 1, sessionFile: "/tmp/c2.jsonl" });
+    const rs: ReportState = { reported: new Set(), activeRole: new Map(), payloads: new Map() }; // empty — no payload
+    const { tool } = deps({ roles: [role("reviewer")], svc: f.svc, reportState: rs });
+    const out = await exec(tool, { role: "reviewer", task: "x" });
+    assert.equal(out.details.status, "completed");
+    assert.equal(out.details.result, "just text, no report");
+  });
+
   it("records spawned child's role in activeRole (for the child's own canSpawn checks later)", async () => {
     const f = fakeService({ id: "child-1", status: "completed", result: "x", turnCount: 1 });
-    const rs: ReportState = { reported: new Set(), activeRole: new Map() };
+    const rs: ReportState = { reported: new Set(), activeRole: new Map(), payloads: new Map() };
     const { tool } = deps({ roles: [role("reviewer")], svc: f.svc, reportState: rs, callerSessionFile: "/tmp/main.jsonl" });
     await exec(tool, { role: "reviewer", task: "x" });
     // child session file captured from service result; reviewer recorded as its role

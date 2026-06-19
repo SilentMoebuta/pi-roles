@@ -93,7 +93,7 @@ export class SubagentsService {
     params: SubagentServiceParams,
     signal: AbortSignal,
   ): Promise<void> {
-    const { session } = await spawnRole(this.deps, {
+    const spawnResult = await spawnRole(this.deps, {
       cwd: this.cwd,
       agentDir: this.agentDir,
       parentSessionId: params.parentSessionId,
@@ -102,6 +102,7 @@ export class SubagentsService {
       model: params.model,
       thinkingLevel: params.thinkingLevel,
     });
+    const session = spawnResult.session;
     // Mark running now that the session exists.
     const state = this.registry.stateOf(id);
     state?.markRunning(Date.now());
@@ -120,6 +121,6 @@ export class SubagentsService {
       } else {
         s.markError(outcome.reason ?? "unknown error", Date.now());
       }
-    }, outcome.reason, outcome.turnCount);
+    }, outcome.reason, outcome.turnCount, spawnResult.sessionFile);
   }
 }

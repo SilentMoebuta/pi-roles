@@ -12,7 +12,7 @@ async function callExecute(state: ReportState, params: unknown, ctx?: any) {
 }
 
 function freshState(): ReportState {
-  return { reported: new Set<string>(), activeRole: new Map<string, string>() };
+  return { reported: new Set<string>(), activeRole: new Map<string, string>(), payloads: new Map() };
 }
 
 function textOf(r: { content: any[] }): string { return r.content.map(c => c.text ?? "").join(""); }

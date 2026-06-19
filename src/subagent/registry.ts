@@ -15,6 +15,7 @@ export interface SubagentRecord {
   result?: string;
   error?: string;
   reason?: string;  // abort cause: "step-limit" | "liveness" | "caller-abort" (runtime-derived, not model text)
+  sessionFile?: string;  // child session file — spawn_role keys the旁路 payload lookup by it
   startedAt?: number;
   completedAt?: number;
   turnCount: number;
@@ -29,6 +30,7 @@ interface Entry {
   settled: boolean;
   reason?: string;
   turnCount?: number;
+  sessionFile?: string;
 }
 
 export class SubagentRegistry {
@@ -75,7 +77,7 @@ export class SubagentRegistry {
   }
 
   /** Settle the run with a terminal state transition. Throws if already settled or unknown. */
-  resolve(id: string, transition: (s: SubagentState) => void, reason?: string, turnCount?: number): void {
+  resolve(id: string, transition: (s: SubagentState) => void, reason?: string, turnCount?: number, sessionFile?: string): void {
     const e = this.entries.get(id);
     if (!e) throw new Error(`unknown subagent id: ${id}`);
     if (e.settled) throw new Error(`subagent ${id} already settled`);
@@ -83,6 +85,7 @@ export class SubagentRegistry {
     e.settled = true;
     e.reason = reason;
     e.turnCount = turnCount;
+    e.sessionFile = sessionFile;
     e.resolve(this.snapshot(e));
   }
 
@@ -114,6 +117,7 @@ export class SubagentRegistry {
       result: s.result,
       error: s.error,
       reason: e.reason,
+      sessionFile: e.sessionFile,
       startedAt: s.startedAt,
       completedAt: s.completedAt,
       turnCount: e.turnCount ?? 0,

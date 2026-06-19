@@ -110,8 +110,14 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       // Record the child's role so its own canSpawn checks (if it ever spawns) resolve.
       if (rec.sessionFile) deps.reportState.activeRole.set(rec.sessionFile, role.name);
 
+      // Decision 4旁路 Map: the structured payload the role reported via
+      // report_role_result is stored in reportState.payloads keyed by the child
+      // session file. Prefer it over the runner's finalText (assistant text fallback).
+      const payload = rec.sessionFile ? deps.reportState.payloads.get(rec.sessionFile) : undefined;
+      const result = payload ?? rec.result;
+
       if (rec.status === "completed") {
-        return okResult({ status: "completed", result: rec.result, agentId: id });
+        return okResult({ status: "completed", result, agentId: id });
       }
       if (rec.status === "aborted") {
         return okResult({ status: "aborted", error: rec.reason ?? "aborted", agentId: id });

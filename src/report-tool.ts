@@ -2,15 +2,21 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 import { validateReport, buildStructuredError, type ReportSchema, type StructuredError } from "./contract";
 
+export interface ReportPayload {
+  findings: string[];
+  artifacts: string[];
+}
+
 // ponytail: per-session keying. reported is a Set of session keys that have
 // already reported; activeRole binds a role name to a session key for accurate
-// failedStep attribution. Keyed by session file path (falls back to session id,
-// then "default") so a long-lived runtime serving multiple role sessions does
-// not block the second reporter as a duplicate. Reset is implicit: a fresh
-// session key is never in the set.
+// failedStep attribution; payloads stores the structured result a role reported,
+// keyed by the role session's file — spawn_role reads it back as the structured
+// handoff (decision 4旁路 Map: AgentSession tool results aren't in prompt()'s
+// return, so the structured payload travels out-of-band via this map).
 export interface ReportState {
   reported: Set<string>;
   activeRole: Map<string, string>;
+  payloads: Map<string, ReportPayload>;
 }
 
 export interface ReportToolOptions {
@@ -68,6 +74,8 @@ export function makeReportTool(opts: ReportToolOptions) {
         }));
       }
       opts.state.reported.add(sk);
+      // Store the structured payload for spawn_role to retrieve (decision 4旁路 Map).
+      opts.state.payloads.set(sk, { findings: params.findings, artifacts: params.artifacts });
       return okResult("[pi-roles] report accepted. You may now stop.");
     },
   });
