@@ -41,8 +41,15 @@ function lastAssistantText(messages: AgentEndEventLike["messages"]): string | un
 export function makeAgentEndFallback(deps: FallbackDeps) {
   return function (event: AgentEndEventLike, ctx: unknown): void {
     const sessionFile = deps.getSessionFile(ctx);
-    // DIAGNOSTIC (c4 live smoke): log what the fallback sees.
-    console.error(`[pi-roles:agent_end] sessionFile=${sessionFile} activeRoleKeys=[${[...deps.activeRole.keys()].join(",")}] payloadKeys=[${[...deps.payloads.keys()].join(",")}]`);
+    // DIAGNOSTIC: stash what the fallback saw into a side channel so spawn_role
+    // can report it (payloads map under a reserved "__diag__" key).
+    const hasActive = deps.activeRole.has(sessionFile);
+    const hadPayload = deps.payloads.has(sessionFile);
+    const hadReported = deps.reported.has(sessionFile);
+    deps.payloads.set("__diag__", {
+      findings: [`agent_end fired: sessionFile=${sessionFile} hasActive=${hasActive} hadPayload=${hadPayload} hadReported=${hadReported} activeRoleKeys=[${[...deps.activeRole.keys()].join(",")}] msgCount=${event.messages?.length}`],
+      artifacts: [],
+    });
     if (!sessionFile) return; // cannot key the payload
 
     // Only role sessions (main agent has no activeRole entry).
