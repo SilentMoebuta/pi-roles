@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { spawnRole, type SessionManagerLike, type SpawnDeps } from "../src/subagent/spawn";
+import { spawnRole, type SpawnDeps } from "../src/subagent/spawn";
 
 // spawnRole builds the child session: constructs a SessionManager, calls
 // newSession({parentSession}) to set the header (so the 3 isSubagentSession
@@ -18,7 +18,7 @@ function makeDeps(calls: Calls, session: any): SpawnDeps {
       newSession: (opts?: unknown) => { calls.newSession.push(opts); },
       getSessionId: () => "child-sess-id",
       getSessionFile: () => "/tmp/child.jsonl",
-    } as unknown as SessionManagerLike),
+    } as unknown as any),
     createSession: async (opts) => {
       calls.createSession.push(opts);
       return { session };

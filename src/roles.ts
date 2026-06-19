@@ -7,6 +7,11 @@ export interface RoleDef {
   tools: string[];
   skills: string[];
   maxTurns: number;
+  /** Can this role spawn further subagents? Default false (anti-cascade).
+   *  Reserved for orchestrator/lead roles (team future). Phase 1: only main agent spawns. */
+  canSpawn: boolean;
+  /** Roles this role may spawn (team future, reserved). Phase 1: unused. */
+  teammates: string[];
   outputSchema?: import("./contract").ReportSchema;
 }
 
@@ -31,5 +36,5 @@ export function parseRoleFrontmatter(file: string): RoleDef {
   const maxTurns = get("maxTurns") ? parseInt(get("maxTurns")!, 10) : DEFAULT_MAX_TURNS;
   const name = get("name") ?? "";
   const description = get("description") ?? "";
-  return { name, description, prompt, tools, skills, maxTurns };
+  return { name, description, prompt, tools, skills, maxTurns, canSpawn: false, teammates: [] };
 }

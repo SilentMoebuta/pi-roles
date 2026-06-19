@@ -11,6 +11,7 @@
 // service.ts wires the real createAgentSession + SessionManager.
 
 import type { SubagentSession } from "./runner";
+import type { SessionManager } from "@earendil-works/pi-coding-agent";
 
 export interface SessionManagerLike {
   newSession(options?: { parentSession?: string }): unknown;
@@ -21,14 +22,14 @@ export interface SessionManagerLike {
 export interface CreateSessionOpts {
   cwd: string;
   agentDir: string;
-  sessionManager: SessionManagerLike;
+  sessionManager: SessionManager;
   tools?: string[];
   model?: unknown;
   thinkingLevel?: unknown;
 }
 
 export interface SpawnDeps {
-  makeSessionManager: (cwd: string) => SessionManagerLike;
+  makeSessionManager: (cwd: string) => SessionManager;
   createSession: (opts: CreateSessionOpts) => Promise<{ session: SubagentSession }>;
 }
 
