@@ -1,11 +1,15 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseRoleFrontmatter, type RoleDef } from "./src/roles";
 import { makeReportTool, type ReportState } from "./src/report-tool";
 import { DEFAULT_REPORT_SCHEMA } from "./src/contract";
 
-export default function (pi: ExtensionAPI): void {
+// ESM: __dirname is undefined under "type":"module". Derive from import.meta.url.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export default async function (pi: ExtensionAPI): Promise<void> {
   const cfg = { maxDepth: 3, livenessTimeoutMs: 300000 };
   const roleRegistry = new Map<string, RoleDef>();
   // Load roles from ./roles/*.md (best-effort)
@@ -17,18 +21,22 @@ export default function (pi: ExtensionAPI): void {
     }
   } catch { /* no roles dir yet — registry empty, spawn_role will reject unknown role */ }
 
-  // Lazy import of gotgenes service (sync getter, but module load may be async).
+  // ESM: require() is undefined under "type":"module". The @gotgenes/pi-subagents
+  // package ships an ESM .ts main, so a dynamic import() (resolved through pi's
+  // tsx loader) is the correct loader. Best-effort: stays undefined if absent.
   let getSubagentsService: (() => unknown) | undefined;
   try {
-    // require() is synchronous; the module's getSubagentsService export is a sync fn.
-    const mod = require("@gotgenes/pi-subagents");
+    const mod = await import("@gotgenes/pi-subagents");
     getSubagentsService = (mod as any).getSubagentsService;
   } catch { /* @gotgenes/pi-subagents not installed; spawn_role reports service unavailable */ }
 
-  // Register a report tool bound to a fresh per-session state.
-  // NOTE: a single shared ReportState is sufficient for the scaffold; per-session
-  // isolation will be added when role-session detection lands.
-  const reportState: ReportState = { reported: false };
+  // Per-session report state: a Set of session keys that have reported, plus a
+  // per-session active-role map for accurate failedStep attribution. Keyed by
+  // session file path (resolved in the tool from ctx.sessionManager) so multiple
+  // role sessions in one runtime do not collide. activeRole is populated when a
+  // role session is spawned (spawn_role wiring is future work); until then
+  // failedStep falls back to "default".
+  const reportState: ReportState = { reported: new Set<string>(), activeRole: new Map<string, string>() };
   pi.registerTool(makeReportTool({ state: reportState, schema: DEFAULT_REPORT_SCHEMA, failedStep: "default" }) as any);
 
   // before_agent_start: persona injection — DESCOPED (no criterion mandates it).
@@ -38,4 +46,7 @@ export default function (pi: ExtensionAPI): void {
   // resources_discover: per-role skill isolation — DESCOPED (no criterion mandates it).
   // Returning undefined leaves pi's default skill discovery unchanged.
   pi.on("resources_discover", () => undefined);
+
+  // Reference cfg/getSubagentsService so they remain wired for future spawn_role work.
+  void cfg; void getSubagentsService;
 }

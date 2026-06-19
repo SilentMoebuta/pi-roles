@@ -87,4 +87,35 @@ describe("spawnRole enforcement", () => {
     assert.equal(r.error, undefined);
     assert.deepEqual(mock.aborts, []);
   });
+  it("returns an error (not silent success) for a still-running agent at pollIntervalMs<=0", async () => {
+    const mock = new MockService();
+    const ctx = makeCtx(mock); // pollIntervalMs=0, no onFirstPoll → stays running
+    const r = await spawnRole("pm", "t", ctx);
+    assert.match(r.error!, /non-positive pollIntervalMs/);
+    assert.equal(r.agentId, undefined);
+    assert.deepEqual(mock.aborts, []); // not aborted, just refused
+  });
+  it("aborts the spawned child and returns an error when the caller signal is already aborted", async () => {
+    const mock = new MockService();
+    const ac = new AbortController();
+    ac.abort();
+    const ctx = makeCtx(mock);
+    ctx.signal = ac.signal;
+    ctx.onFirstPoll = (id) => { mock.records.get(id)!.status = "completed"; };
+    const r = await spawnRole("pm", "t", ctx);
+    assert.match(r.error!, /aborted by caller signal/);
+    assert.deepEqual(mock.aborts, ["agent-1"]);
+  });
+  it("aborts the spawned child when the signal aborts mid-poll", async () => {
+    const mock = new MockService();
+    const ac = new AbortController();
+    const ctx = makeCtx(mock);
+    ctx.signal = ac.signal;
+    ctx.pollIntervalMs = 5;
+    // agent stays running; abort after the first poll iteration
+    ctx.onFirstPoll = () => { setTimeout(() => ac.abort(), 1); };
+    const r = await spawnRole("pm", "t", ctx);
+    assert.match(r.error!, /aborted by caller signal/);
+    assert.deepEqual(mock.aborts, ["agent-1"]);
+  });
 });

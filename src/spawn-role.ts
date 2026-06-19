@@ -9,6 +9,8 @@ export interface SpawnContext {
   now?: () => number;
   pollIntervalMs?: number;
   roleRegistry: Map<string, RoleDef>;
+  /** Caller's abort signal (e.g. parent turn ESC). On abort the spawned child is aborted and the loop breaks. */
+  signal?: AbortSignal;
   /** test hook: mutate the record before the first poll evaluation */
   onFirstPoll?: (id: string) => void;
 }
@@ -44,6 +46,7 @@ export async function spawnRole(roleName: string, task: string, sctx: SpawnConte
   // Watcher: poll until terminal, enforcing step limit + liveness timeout.
   // In tests pollIntervalMs=0 and onFirstPoll drives state synchronously.
   while (true) {
+    if (sctx.signal?.aborted) { service.abort(id); return { error: `aborted by caller signal: ${id}` }; }
     const rec = service.getRecord(id);
     if (firstPoll) { sctx.onFirstPoll?.(id); firstPoll = false; }
     const recAfter = service.getRecord(id) ?? rec;
@@ -60,8 +63,10 @@ export async function spawnRole(roleName: string, task: string, sctx: SpawnConte
     if (pollMs > 0) {
       await new Promise<void>(resolve => setTimeout(resolve, pollMs));
     } else {
-      // pollIntervalMs=0 with no state change => avoid infinite loop, treat as completed
-      return { agentId: id, error: undefined };
+      // pollIntervalMs<=0 with a still-running, non-terminal agent: refuse to
+      // pretend success (caller would believe the role finished). Tests that
+      // drive terminal state via onFirstPoll return before reaching here.
+      return { error: "non-positive pollIntervalMs not allowed for running agents" };
     }
   }
 }
