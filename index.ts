@@ -9,7 +9,8 @@ import { DEFAULT_REPORT_SCHEMA } from "./src/contract";
 import { SubagentsService } from "./src/subagent/service";
 import type { SpawnDeps } from "./src/subagent/spawn";
 import { makeSpawnRoleTool } from "./src/subagent/spawn-role-tool";
-import { makeAgentEndFallback } from "./src/subagent/agent-end-fallback";
+// agent-end-fallback module retained as a potential future same-process
+// defense, but not wired (child sessions have their own extension instance).
 
 // ESM: __dirname is undefined under "type":"module". Derive from import.meta.url.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -64,19 +65,14 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // Role-session detection + persona injection is future multi-roles work.
   pi.on("before_agent_start", () => undefined);
 
-  // agent_end fallback (decision 4 hardening): contract reliability via MECHANISM,
-  // not model compliance. If a role subagent finishes WITHOUT calling
-  // report_role_result (model ignored the instruction, or errored mid-run),
-  // construct a fallback payload from the last assistant message so spawn_role
-  // still receives a structured {findings, artifacts} result. Only acts on
-  // role sessions (activeRole has an entry); main agent_end is a no-op.
-  const agentEndHandler = makeAgentEndFallback({
-    payloads: reportState.payloads,
-    reported: reportState.reported,
-    activeRole: reportState.activeRole,
-    getSessionFile: (ctx: any) => ctx?.sessionManager?.getSessionFile?.() ?? undefined,
-  });
-  pi.on("agent_end", ((event: any, ctx: any) => { agentEndHandler(event, ctx); }) as any);
+  // NOTE: agent_end fallback removed. The child subagent loads its OWN pi-roles
+  // extension instance (createAgentSession re-runs resourceLoader.getExtensions),
+  // so its agent_end fires into the child's extension runner, NOT the main
+  // process's pi.on("agent_end"). Cross-session reportState.payloads never
+  // received the child's report_role_result either. Contract reliability is
+  // instead enforced in spawn_role itself: service.ts scans the child session's
+  // messages for the report_role_result tool call and extracts its structured
+  // {findings, artifacts} arguments directly (no cross-session state needed).
 
   // resources_discover: per-role skill isolation — DESCOPED (no criterion mandates it).
   // Returning undefined leaves pi's default skill discovery unchanged.

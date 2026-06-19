@@ -69,11 +69,11 @@ describe("spawn_role tool", () => {
     const { tool } = deps({ roles: [role("reviewer")], svc: f.svc });
     const out = await exec(tool, { role: "reviewer", task: "review X" });
     assert.equal(out.details.status, "completed");
-    assert.equal(out.details.result, "review summary");
+    // no reportPayload + no legacy payload → fallback wraps finalText as {findings:[text]}
+    assert.deepEqual(out.details.result, { findings: ["review summary"], artifacts: [] });
     assert.equal(out.details.agentId, "r1");
     assert.equal(f.calls[0].role, "reviewer");
     assert.equal(f.calls[0].task, "review X");
-    // mode is a tool-level concern (foreground = await); not forwarded to service.spawn.
     assert.equal(f.calls[0].mode, undefined);
   });
 
@@ -201,7 +201,8 @@ describe("spawn_role tool", () => {
     const { tool } = deps({ roles: [role("reviewer")], svc: f.svc, reportState: rs });
     const out = await exec(tool, { role: "reviewer", task: "x" });
     assert.equal(out.details.status, "completed");
-    assert.equal(out.details.result, "just text, no report");
+    // fallback wraps finalText as structured {findings:[text]}
+    assert.deepEqual(out.details.result, { findings: ["just text, no report"], artifacts: [] });
   });
 
   it("records spawned child's role in activeRole (for the child's own canSpawn checks later)", async () => {

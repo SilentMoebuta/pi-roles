@@ -122,6 +122,13 @@ export class SubagentsService {
       livenessMs: params.livenessMs,
     });
 
+    // Extract the report_role_result payload by scanning the child session's
+    // messages for the tool call (not via cross-session reportState — the child
+    // loads its own pi-roles instance with its own Map). This is the reliable
+    // contract path: the structured {findings, artifacts} arguments the role
+    // passed to report_role_result live in the assistant message's toolCall content.
+    const reportPayload = extractReportPayload((session as any).messages);
+
     this.registry.resolve(id, (s) => {
       if (outcome.status === "completed") {
         s.markCompleted(outcome.finalText ?? "", Date.now());
@@ -130,6 +137,23 @@ export class SubagentsService {
       } else {
         s.markError(outcome.reason ?? "unknown error", Date.now());
       }
-    }, outcome.reason, outcome.turnCount, spawnResult.sessionFile);
+    }, outcome.reason, outcome.turnCount, spawnResult.sessionFile, reportPayload);
   }
+}
+
+// Scan child session messages for the report_role_result tool call and extract
+// its {findings, artifacts} arguments. Returns undefined if the role never called it.
+function extractReportPayload(messages: any[] | undefined): { findings: string[]; artifacts: string[] } | undefined {
+  if (!messages) return undefined;
+  for (const m of messages) {
+    if (m?.role !== "assistant") continue;
+    const calls = (m.content ?? []).filter((c: any) => c?.type === "toolCall" && c?.name === "report_role_result");
+    for (const c of calls) {
+      const args = c.arguments;
+      if (args && Array.isArray(args.findings) && Array.isArray(args.artifacts)) {
+        return { findings: args.findings, artifacts: args.artifacts };
+      }
+    }
+  }
+  return undefined;
 }

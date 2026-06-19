@@ -53,6 +53,7 @@ export interface SpawnToolRecord {
   reason?: string;
   turnCount?: number;
   sessionFile?: string;
+  reportPayload?: { findings: string[]; artifacts: string[] };
 }
 
 export interface SpawnToolDeps {
@@ -144,20 +145,24 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
 
       const rec = await deps.service.waitForResult(id);
 
-      // Decision 4旁路 Map: the structured payload the role reported via
-      // report_role_result is stored in reportState.payloads keyed by the child
-      // session file. Prefer it over the runner's finalText (assistant text fallback).
-      // If the role didn't call report_role_result, the agent_end fallback already
-      // constructed a payload from the last assistant message.
-      const payload = rec.sessionFile ? deps.reportState.payloads.get(rec.sessionFile) : undefined;
+      // Contract reliability via MECHANISM, not model compliance: spawn_role ALWAYS
+      // returns a structured {findings, artifacts} object. Priority:
+      //   1. rec.reportPayload — extracted by service from the child session's
+      //      messages (the report_role_result tool call's arguments). Works even
+      //      though the child loads its own pi-roles instance (separate reportState).
+      //   2. reportState.payloads (same-process legacy path; usually empty here).
+      //   3. Fallback: wrap rec.result (runner's last assistant text) as {findings:[text]}.
+      const payload = rec.reportPayload
+        ?? (rec.sessionFile ? deps.reportState.payloads.get(rec.sessionFile) : undefined);
+      const result = payload ?? (rec.result ? { findings: [rec.result], artifacts: [] } : { findings: [], artifacts: [] });
+
       const _diag = {
         recSessionFile: rec.sessionFile,
-        payloadFound: !!payload,
-        activeRoleKeys: [...deps.reportState.activeRole.keys()],
-        payloadKeys: [...deps.reportState.payloads.keys()],
-        agentEndDiag: deps.reportState.payloads.get("__diag__") ?? null,
+        reportPayloadFound: !!rec.reportPayload,
+        legacyPayloadFound: !!(rec.sessionFile && deps.reportState.payloads.get(rec.sessionFile)),
+        usedFallbackWrap: !rec.reportPayload && !payload && !!rec.result,
       };
-      const result = payload ?? rec.result;
+      void _diag;
 
       if (rec.status === "completed") {
         return okResult({ status: "completed", result, agentId: id, _diag });
