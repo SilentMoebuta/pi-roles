@@ -155,7 +155,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         payloadFound: !!payload,
         activeRoleKeys: [...deps.reportState.activeRole.keys()],
         payloadKeys: [...deps.reportState.payloads.keys()],
-        agentEndDiag: deps.reportState.payloads.get("__diag__"),
+        agentEndDiag: deps.reportState.payloads.get("__diag__") ?? null,
       };
       const result = payload ?? rec.result;
 
