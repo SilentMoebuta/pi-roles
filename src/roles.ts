@@ -12,6 +12,10 @@ export interface RoleDef {
   canSpawn: boolean;
   /** Roles this role may spawn (team future, reserved). Phase 1: unused. */
   teammates: string[];
+  /** Model id for this role's subagent (e.g. 'deepseek-v4-flash'). Default: inherit main session. */
+  model?: string;
+  /** Thinking level for this role (e.g. 'xhigh'). Default: inherit. */
+  thinkingLevel?: string;
   outputSchema?: import("./contract").ReportSchema;
 }
 
@@ -36,5 +40,7 @@ export function parseRoleFrontmatter(file: string): RoleDef {
   const maxTurns = get("maxTurns") ? parseInt(get("maxTurns")!, 10) : DEFAULT_MAX_TURNS;
   const name = get("name") ?? "";
   const description = get("description") ?? "";
-  return { name, description, prompt, tools, skills, maxTurns, canSpawn: false, teammates: [] };
+  const model = get("model");
+  const thinkingLevel = get("thinkingLevel");
+  return { name, description, prompt, tools, skills, maxTurns, canSpawn: false, teammates: [], model, thinkingLevel };
 }

@@ -24,6 +24,8 @@ export interface SpawnToolService {
     parentSessionId?: string;
     tools?: string[];
     maxTurns?: number;
+    model?: unknown;
+    thinkingLevel?: unknown;
     signal?: AbortSignal;
   }): string;
   waitForResult(id: string): Promise<SpawnToolRecord>;
@@ -108,6 +110,8 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         parentSessionId: callerSessionFile,
         tools: childTools,
         maxTurns: role.maxTurns,
+        model: role.model,
+        thinkingLevel: role.thinkingLevel,
         signal,
       });
 
