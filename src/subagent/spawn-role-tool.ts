@@ -12,10 +12,13 @@
 // createSession allowlist. Phase 1 parses string[]; object {name, allow?} form
 // degrades to name with allow ignored (forward-compat for per-key glob).
 
-import { defineTool } from "@earendil-works/pi-coding-agent";
+import { defineTool, DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import * as path from "node:path";
+import * as os from "node:os";
 import type { RoleDef } from "../roles";
 import type { ReportState } from "../report-tool";
+import { makeRoleSkillsOverride } from "./skills-override";
 
 // Resolves a role frontmatter model reference (bare id 'deepseek-v4-flash' or
 // 'provider/modelId') to a Model object using the tool execution context's
@@ -39,6 +42,7 @@ export interface SpawnToolService {
     maxTurns?: number;
     model?: unknown;
     thinkingLevel?: unknown;
+    resourceLoader?: unknown;
     onSessionCreated?: (sessionFile: string, role: string) => void;
     signal?: AbortSignal;
   }): string;
@@ -125,6 +129,19 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       const registry = (ctx as any)?.modelRegistry;
       const resolvedModel = role.model && registry ? resolveModelRef(role.model, registry) : undefined;
 
+      // Phase 2: build a child resourceLoader with a role-specific skillsOverride.
+      // The child's skill set = baseSkills (pi loads, skillsOverride receives) ∪
+      // role.domainSkills. Phase 1 roles (skills:[]) inherit the full common pool
+      // unchanged (additive). Main agent's resourceLoader is untouched (zero pollution).
+      const cwd = (ctx as any)?.cwd ?? process.cwd();
+      const agentDir = (ctx as any)?.agentDir ?? path.join(os.homedir(), ".pi", "agent");
+      const resourceLoader = new DefaultResourceLoader({
+        cwd,
+        agentDir,
+        noSkills: false,
+        skillsOverride: makeRoleSkillsOverride({ domainSkills: [] }),
+      } as any);
+
       const id = deps.service.spawn({
         role: role.name,
         task: params.task,
@@ -133,6 +150,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         maxTurns: role.maxTurns,
         model: resolvedModel,
         thinkingLevel: role.thinkingLevel,
+        resourceLoader,
         onSessionCreated: (sessionFile, roleName) => {
           // Record the child's role BEFORE prompt runs, so the agent_end fallback
           // recognizes the session as a role session (in case the model never calls

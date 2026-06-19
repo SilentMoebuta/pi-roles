@@ -28,6 +28,10 @@ export interface CreateSessionOpts {
   tools?: string[];
   model?: Model<any>;
   thinkingLevel?: unknown;
+  /** Optional resourceLoader: when provided, createAgentSession uses it instead of
+   *  building its own default (sdk.js:66). Used by spawn_role to inject a
+   *  role-specific skillsOverride (Phase 2 skill isolation). */
+  resourceLoader?: unknown;
 }
 
 export interface SpawnDeps {
@@ -46,6 +50,8 @@ export interface SpawnParams {
   /** Resolved Model object (caller resolves frontmatter id via ctx.modelRegistry). */
   model?: any;
   thinkingLevel?: unknown;
+  /** Optional resourceLoader with role-specific skillsOverride (Phase 2). */
+  resourceLoader?: unknown;
 }
 
 export interface SpawnResult {
@@ -73,6 +79,7 @@ export async function spawnRole(deps: SpawnDeps, params: SpawnParams): Promise<S
     tools: params.tools,
     model: params.model,
     thinkingLevel: params.thinkingLevel,
+    resourceLoader: params.resourceLoader,
   });
 
   return {
