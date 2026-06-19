@@ -137,6 +137,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
           // recognizes the session as a role session (in case the model never calls
           // report_role_result).
           deps.reportState.activeRole.set(sessionFile, roleName);
+          console.error(`[pi-roles:spawn] recorded activeRole[${sessionFile}]=${roleName}`);
         },
         signal,
       });
@@ -149,6 +150,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       // If the role didn't call report_role_result, the agent_end fallback already
       // constructed a payload from the last assistant message.
       const payload = rec.sessionFile ? deps.reportState.payloads.get(rec.sessionFile) : undefined;
+      console.error(`[pi-roles:spawn_role_tool] rec.sessionFile=${rec.sessionFile} payloadFound=${!!payload} result=${payload ? "payload" : "fallback-text"}`);
       const result = payload ?? rec.result;
 
       if (rec.status === "completed") {
