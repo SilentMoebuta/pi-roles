@@ -156,16 +156,8 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         ?? (rec.sessionFile ? deps.reportState.payloads.get(rec.sessionFile) : undefined);
       const result = payload ?? (rec.result ? { findings: [rec.result], artifacts: [] } : { findings: [], artifacts: [] });
 
-      const _diag = {
-        recSessionFile: rec.sessionFile,
-        reportPayloadFound: !!rec.reportPayload,
-        legacyPayloadFound: !!(rec.sessionFile && deps.reportState.payloads.get(rec.sessionFile)),
-        usedFallbackWrap: !rec.reportPayload && !payload && !!rec.result,
-      };
-      void _diag;
-
       if (rec.status === "completed") {
-        return okResult({ status: "completed", result, agentId: id, _diag });
+        return okResult({ status: "completed", result, agentId: id });
       }
       if (rec.status === "aborted") {
         return okResult({ status: "aborted", error: rec.reason ?? "aborted", agentId: id });
