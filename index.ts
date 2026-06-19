@@ -9,6 +9,7 @@ import { DEFAULT_REPORT_SCHEMA } from "./src/contract";
 import { SubagentsService } from "./src/subagent/service";
 import type { SpawnDeps } from "./src/subagent/spawn";
 import { makeSpawnRoleTool } from "./src/subagent/spawn-role-tool";
+import { makeRoleSessionStartHandler } from "./src/subagent/session-start-handler";
 // agent-end-fallback module retained as a potential future same-process
 // defense, but not wired (child sessions have their own extension instance).
 
@@ -65,6 +66,18 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // before_agent_start: persona injection — DESCOPED (no criterion mandates it).
   // Role-session detection + persona injection is future multi-roles work.
   pi.on("before_agent_start", () => undefined);
+
+  // session_start (A-fix): for role sessions (parentSession present), additively
+  // add report_role_result to active tools. Root cause: createAgentSession applies
+  // the tools allowlist before extensions register report_role_result, so the tool
+  // is filtered out at construction. By session_start (after extensions load) the
+  // tool IS registered; this handler adds it back. ADDITIVE only — preserves the
+  // role's whitelist (reviewer stays read-only). No cross-session state: the child
+  // loads its own pi-roles instance whose handler runs against the child's pi.
+  pi.on("session_start", makeRoleSessionStartHandler({
+    getActiveTools: () => pi.getActiveTools(),
+    setActiveTools: (names) => pi.setActiveTools(names),
+  }) as any);
 
   // NOTE: agent_end fallback removed. The child subagent loads its OWN pi-roles
   // extension instance (createAgentSession re-runs resourceLoader.getExtensions),
