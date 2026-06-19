@@ -79,7 +79,7 @@ describe("spawnRole", () => {
   it("forwards model to createSession when provided", async () => {
     const calls = { newSession: [], createSession: [] };
     const deps = makeDeps(calls, {});
-    const model = { id: "test-model" };
+    const model = { id: "test-model" } as any;
     await spawnRole(deps, { cwd: "/p", agentDir: "/.pi", task: "x", model });
     assert.equal((calls.createSession[0] as any).model, model);
   });

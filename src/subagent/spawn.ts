@@ -2,16 +2,18 @@
 // and the role tool allowlist applied.
 //
 // pi primitive basis (research note Appendix A.6/A.7): createAgentSession accepts
-// `sessionManager?` (default SessionManager.create(cwd)) and `tools?` (allowlist).
-// SessionManager.create(cwd) then newSession({parentSession}) sets the header that
-// the 3 isSubagentSession guards read (pi-goal/pi-auto-fix-loop/pi-plan-execute-gate).
-// This is the same native path gotgenes uses — no fork, no assumption.
+// `sessionManager?` (default SessionManager.create(cwd)) and `tools?` (allowlist)
+// and `model?` (Model<any> object). SessionManager.create(cwd) then
+// newSession({parentSession}) sets the header that the 3 isSubagentSession
+// guards read (pi-goal/pi-auto-fix-loop/pi-plan-execute-gate). This is the same
+// native path gotgenes uses — no fork, no assumption.
 //
 // Injectable deps keep the orchestration logic testable without a real pi runtime;
 // service.ts wires the real createAgentSession + SessionManager.
 
 import type { SubagentSession } from "./runner";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
+import type { Model } from "@earendil-works/pi-ai";
 
 export interface SessionManagerLike {
   newSession(options?: { parentSession?: string }): unknown;
@@ -24,7 +26,7 @@ export interface CreateSessionOpts {
   agentDir: string;
   sessionManager: SessionManager;
   tools?: string[];
-  model?: unknown;
+  model?: Model<any>;
   thinkingLevel?: unknown;
 }
 
@@ -41,7 +43,8 @@ export interface SpawnParams {
   task: string;
   /** Role tool allowlist (string[] form). undefined = inherit pi default tools. */
   tools?: string[];
-  model?: unknown;
+  /** Resolved Model object (caller resolves frontmatter id via ctx.modelRegistry). */
+  model?: any;
   thinkingLevel?: unknown;
 }
 

@@ -34,6 +34,9 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // Self-written execution layer (replaces @gotgenes/pi-subagents).
   // SpawnDeps wires pi's PUBLIC primitives: SessionManager.create + createAgentSession.
   // No fork, no assumption — same public API gotgenes calls internally.
+  // Per-role model resolution happens in spawn-role-tool via ctx.modelRegistry
+  // (the main session's registry, in-memory credentials); the resolved Model
+  // object flows here as opts.model into createAgentSession.
   const spawnDeps: SpawnDeps = {
     makeSessionManager: (cwd) => SessionManager.create(cwd),
     createSession: async (opts) => {
@@ -42,7 +45,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
         agentDir: opts.agentDir,
         sessionManager: opts.sessionManager,
         tools: opts.tools,
-        model: opts.model as any,
+        model: opts.model,
         thinkingLevel: opts.thinkingLevel as any,
       });
       return { session: session as any };

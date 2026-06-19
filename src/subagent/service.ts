@@ -18,7 +18,7 @@ export interface SubagentServiceParams {
   task: string;
   parentSessionId?: string;
   tools?: string[];
-  model?: unknown;
+  model?: any;       // resolved Model object (resolved by spawn-role-tool via ctx.modelRegistry)
   thinkingLevel?: unknown;
   maxTurns?: number;
   livenessMs?: number;

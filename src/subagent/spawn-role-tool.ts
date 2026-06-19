@@ -17,6 +17,19 @@ import { Type } from "typebox";
 import type { RoleDef } from "../roles";
 import type { ReportState } from "../report-tool";
 
+// Resolves a role frontmatter model reference (bare id 'deepseek-v4-flash' or
+// 'provider/modelId') to a Model object using the tool execution context's
+// modelRegistry (ExtensionContext.modelRegistry — the main session's registry,
+// with in-memory credentials, so children reuse auth, not re-read disk).
+// findExactModelReferenceMatch is not a public pi export, so we scan getAll().
+function resolveModelRef(modelRef: string, registry: { getAll(): any[]; find(provider: string, id: string): any | undefined }): any | undefined {
+  const slash = modelRef.indexOf("/");
+  if (slash > 0) {
+    return registry.find(modelRef.slice(0, slash), modelRef.slice(slash + 1));
+  }
+  return registry.getAll().find((m: any) => m.id === modelRef);
+}
+
 export interface SpawnToolService {
   spawn(params: {
     role: string;
@@ -104,13 +117,19 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
 
       const callerSessionFile = (deps.getCallerSessionFile ?? (() => (ctx as any)?.sessionManager?.getSessionFile?.()))();
 
+      // Resolve the role's model reference to a real Model object via the
+      // tool ctx's modelRegistry (main session registry, in-memory credentials).
+      // If unresolvable, leave undefined → child inherits session default model.
+      const registry = (ctx as any)?.modelRegistry;
+      const resolvedModel = role.model && registry ? resolveModelRef(role.model, registry) : undefined;
+
       const id = deps.service.spawn({
         role: role.name,
         task: params.task,
         parentSessionId: callerSessionFile,
         tools: childTools,
         maxTurns: role.maxTurns,
-        model: role.model,
+        model: resolvedModel,
         thinkingLevel: role.thinkingLevel,
         signal,
       });
