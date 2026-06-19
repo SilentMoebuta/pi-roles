@@ -6,6 +6,7 @@
 //
 // spawn kicks off runSubagent async (fire-and-forget); the run settles the
 // registry's completion promise. abort(id) cancels via a per-run AbortController
+import * as fs from "node:fs";
 // whose signal the runner observes (→ session.abort()). Status from runtime, not
 // model text.
 
@@ -41,11 +42,15 @@ export class SubagentsService {
   private cwd: string;
   private agentDir: string;
   private handles = new Map<string, RunHandle>();
+  private archiveSession: (sessionFile: string) => void;
 
-  constructor(deps: SpawnDeps, env: { cwd: string; agentDir: string }) {
+  constructor(deps: SpawnDeps, env: { cwd: string; agentDir: string; archiveSession?: (sessionFile: string) => void }) {
     this.deps = deps;
     this.cwd = env.cwd;
     this.agentDir = env.agentDir;
+    // Default: rename child .jsonl to .archived.<ts> so it leaves pi's dir scan
+    // (pi only scans *.jsonl) while preserving the transcript for audit.
+    this.archiveSession = env.archiveSession ?? defaultArchiveSession;
   }
 
   /** Spawn a subagent run. Returns its id immediately; the run proceeds async. */
@@ -140,7 +145,23 @@ export class SubagentsService {
         s.markError(outcome.reason ?? "unknown error", Date.now());
       }
     }, outcome.reason, outcome.turnCount, spawnResult.sessionFile, reportPayload);
+
+    // B-cleanup: archive the child session file so it leaves pi's session-tree
+    // dir scan (pi only scans *.jsonl). Transcript preserved for audit.
+    // Best-effort: errors swallowed (run already resolved successfully).
+    if (spawnResult.sessionFile) {
+      try { this.archiveSession(spawnResult.sessionFile); }
+      catch { /* best-effort: cleanup failure does not affect the resolved run */ }
+    }
   }
+}
+
+// Default archive: rename <file>.jsonl → <file>.jsonl.archived.<ts>.
+// pi's session-tree scan filters `f.endsWith(".jsonl")`, so the renamed file
+// disappears from the tree while its content is preserved for audit.
+// ponytail: rename not unlink — keeps the transcript for debugging.
+function defaultArchiveSession(sessionFile: string): void {
+  fs.renameSync(sessionFile, `${sessionFile}.archived.${Date.now()}`);
 }
 
 // Scan child session messages for the report_role_result tool call and extract
