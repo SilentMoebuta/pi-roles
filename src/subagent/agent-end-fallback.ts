@@ -43,11 +43,12 @@ export function makeAgentEndFallback(deps: FallbackDeps) {
     const sessionFile = deps.getSessionFile(ctx);
     // DIAGNOSTIC: stash what the fallback saw into a side channel so spawn_role
     // can report it (payloads map under a reserved "__diag__" key).
-    const hasActive = deps.activeRole.has(sessionFile);
-    const hadPayload = deps.payloads.has(sessionFile);
-    const hadReported = deps.reported.has(sessionFile);
+    const sf = sessionFile ?? "<undefined>";
+    const hasActive = deps.activeRole.has(sf);
+    const hadPayload = deps.payloads.has(sf);
+    const hadReported = deps.reported.has(sf);
     deps.payloads.set("__diag__", {
-      findings: [`agent_end fired: sessionFile=${sessionFile} hasActive=${hasActive} hadPayload=${hadPayload} hadReported=${hadReported} activeRoleKeys=[${[...deps.activeRole.keys()].join(",")}] msgCount=${event.messages?.length}`],
+      findings: [`agent_end fired: sessionFile=${sf} hasActive=${hasActive} hadPayload=${hadPayload} hadReported=${hadReported} activeRoleKeys=[${[...deps.activeRole.keys()].join(",")}] msgCount=${event.messages?.length}`],
       artifacts: [],
     });
     if (!sessionFile) return; // cannot key the payload

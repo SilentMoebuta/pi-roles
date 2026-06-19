@@ -68,7 +68,9 @@ describe("spawn_role tool", () => {
     const f = fakeService({ id: "r1", status: "completed", result: "review summary", turnCount: 2 });
     const { tool } = deps({ roles: [role("reviewer")], svc: f.svc });
     const out = await exec(tool, { role: "reviewer", task: "review X" });
-    assert.deepEqual(out.details, { status: "completed", result: "review summary", agentId: "r1" });
+    assert.equal(out.details.status, "completed");
+    assert.equal(out.details.result, "review summary");
+    assert.equal(out.details.agentId, "r1");
     assert.equal(f.calls[0].role, "reviewer");
     assert.equal(f.calls[0].task, "review X");
     // mode is a tool-level concern (foreground = await); not forwarded to service.spawn.

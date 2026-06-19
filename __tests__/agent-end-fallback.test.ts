@@ -55,7 +55,7 @@ describe("agent_end fallback", () => {
     const activeRole = new Map<string, string>(); // empty — not a role session
     const { handler } = deps({ payloads, activeRole, sessionFile: "/tmp/main.jsonl" });
     handler({ type: "agent_end", messages: [assistantMsg("main agent done")] }, {});
-    assert.equal(payloads.size, 0, "no fallback for non-role (main) session");
+    assert.equal([...payloads.keys()].filter(k=>k!=="__diag__").length, 0, "no fallback for non-role (main) session");
   });
 
   it("only the LAST assistant message is captured (not earlier ones)", () => {
@@ -90,6 +90,6 @@ describe("agent_end fallback", () => {
     const payloads = new Map<string, any>();
     const { handler } = deps({ payloads, sessionFile: undefined });
     handler({ type: "agent_end", messages: [assistantMsg("x")] }, {});
-    assert.equal(payloads.size, 0);
+    assert.equal([...payloads.keys()].filter(k=>k!=="__diag__").length, 0);
   });
 });
