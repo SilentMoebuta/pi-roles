@@ -22,6 +22,10 @@ export interface SubagentServiceParams {
   thinkingLevel?: unknown;
   maxTurns?: number;
   livenessMs?: number;
+  /** Called with the child session file + role name once the session is created
+   *  (before prompt runs), so the agent_end fallback can recognize the session
+   *  as a role session. */
+  onSessionCreated?: (sessionFile: string, role: string) => void;
   /** Caller abort signal (e.g. parent turn ESC). */
   signal?: AbortSignal;
 }
@@ -103,6 +107,11 @@ export class SubagentsService {
       thinkingLevel: params.thinkingLevel,
     });
     const session = spawnResult.session;
+    // Notify caller of the child session file + role so the agent_end fallback
+    // can recognize it as a role session (before prompt runs).
+    if (spawnResult.sessionFile && params.onSessionCreated) {
+      params.onSessionCreated(spawnResult.sessionFile, params.role ?? "default");
+    }
     // Mark running now that the session exists.
     const state = this.registry.stateOf(id);
     state?.markRunning(Date.now());

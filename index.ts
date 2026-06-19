@@ -9,6 +9,7 @@ import { DEFAULT_REPORT_SCHEMA } from "./src/contract";
 import { SubagentsService } from "./src/subagent/service";
 import type { SpawnDeps } from "./src/subagent/spawn";
 import { makeSpawnRoleTool } from "./src/subagent/spawn-role-tool";
+import { makeAgentEndFallback } from "./src/subagent/agent-end-fallback";
 
 // ESM: __dirname is undefined under "type":"module". Derive from import.meta.url.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -62,6 +63,20 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // before_agent_start: persona injection — DESCOPED (no criterion mandates it).
   // Role-session detection + persona injection is future multi-roles work.
   pi.on("before_agent_start", () => undefined);
+
+  // agent_end fallback (decision 4 hardening): contract reliability via MECHANISM,
+  // not model compliance. If a role subagent finishes WITHOUT calling
+  // report_role_result (model ignored the instruction, or errored mid-run),
+  // construct a fallback payload from the last assistant message so spawn_role
+  // still receives a structured {findings, artifacts} result. Only acts on
+  // role sessions (activeRole has an entry); main agent_end is a no-op.
+  const agentEndHandler = makeAgentEndFallback({
+    payloads: reportState.payloads,
+    reported: reportState.reported,
+    activeRole: reportState.activeRole,
+    getSessionFile: (ctx: any) => ctx?.sessionManager?.getSessionFile?.() ?? undefined,
+  });
+  pi.on("agent_end", ((event: any, ctx: any) => { agentEndHandler(event, ctx); }) as any);
 
   // resources_discover: per-role skill isolation — DESCOPED (no criterion mandates it).
   // Returning undefined leaves pi's default skill discovery unchanged.

@@ -39,6 +39,7 @@ export interface SpawnToolService {
     maxTurns?: number;
     model?: unknown;
     thinkingLevel?: unknown;
+    onSessionCreated?: (sessionFile: string, role: string) => void;
     signal?: AbortSignal;
   }): string;
   waitForResult(id: string): Promise<SpawnToolRecord>;
@@ -131,17 +132,22 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         maxTurns: role.maxTurns,
         model: resolvedModel,
         thinkingLevel: role.thinkingLevel,
+        onSessionCreated: (sessionFile, roleName) => {
+          // Record the child's role BEFORE prompt runs, so the agent_end fallback
+          // recognizes the session as a role session (in case the model never calls
+          // report_role_result).
+          deps.reportState.activeRole.set(sessionFile, roleName);
+        },
         signal,
       });
 
       const rec = await deps.service.waitForResult(id);
 
-      // Record the child's role so its own canSpawn checks (if it ever spawns) resolve.
-      if (rec.sessionFile) deps.reportState.activeRole.set(rec.sessionFile, role.name);
-
       // Decision 4旁路 Map: the structured payload the role reported via
       // report_role_result is stored in reportState.payloads keyed by the child
       // session file. Prefer it over the runner's finalText (assistant text fallback).
+      // If the role didn't call report_role_result, the agent_end fallback already
+      // constructed a payload from the last assistant message.
       const payload = rec.sessionFile ? deps.reportState.payloads.get(rec.sessionFile) : undefined;
       const result = payload ?? rec.result;
 
