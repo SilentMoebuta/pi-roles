@@ -12,28 +12,23 @@
 // (ExtensionContext exposes no skill-read API, but skillsOverride receives the
 // loaded skills directly).
 
-export interface SkillLike {
-  name: string;
-  description: string;
-  filePath: string;
-  baseDir: string;
-  sourceInfo: unknown;
-  disableModelInvocation: boolean;
-}
+import type { Skill } from "@earendil-works/pi-coding-agent";
+
+// SkillLike removed — now using pi's exported Skill type.
 
 export interface SkillsOverrideInput {
-  skills: SkillLike[];
+  skills: Skill[];
   diagnostics: unknown[];
 }
 
 export interface SkillsOverrideOutput {
-  skills: SkillLike[];
+  skills: Skill[];
   diagnostics: unknown[];
 }
 
 export interface RoleSkillsOverrideOptions {
   /** Already-loaded domain skills (Skill[]) for this role. Phase 1 roles pass []. */
-  domainSkills: SkillLike[];
+  domainSkills: Skill[];
 }
 
 export function makeRoleSkillsOverride(opts: RoleSkillsOverrideOptions) {

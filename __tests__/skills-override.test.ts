@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { makeRoleSkillsOverride, type SkillLike } from "../src/subagent/skills-override";
+import { makeRoleSkillsOverride } from "../src/subagent/skills-override";
+import type { Skill } from "@earendil-works/pi-coding-agent";
 
 // skillsOverride: the function passed to DefaultResourceLoader that controls a
 // role subagent's skill set. Receives pi's loaded base skills; returns the
@@ -9,8 +10,6 @@ import { makeRoleSkillsOverride, type SkillLike } from "../src/subagent/skills-o
 // Phase 2 additive semantics (design doc §5.2): a role with skills:[] inherits
 // the full common pool (base unchanged). domainSkills only ADDS. Restrictive
 // filtering is a future opt-in, not Phase 2.
-
-interface Skill extends SkillLike {}
 
 function skill(name: string, filePath = "/p/" + name + ".md"): Skill {
   return { name, description: name, filePath, baseDir: "/p", sourceInfo: {} as any, disableModelInvocation: false };

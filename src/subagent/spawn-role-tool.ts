@@ -13,9 +13,11 @@
 // degrades to name with allow ignored (forward-compat for per-key glob).
 
 import { defineTool, DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
+import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import * as path from "node:path";
 import * as os from "node:os";
+import { fileURLToPath } from "node:url";
 import type { RoleDef } from "../roles";
 import type { ReportState } from "../report-tool";
 import { makeRoleSkillsOverride } from "./skills-override";
@@ -138,11 +140,19 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       // unchanged (additive). Main agent's resourceLoader is untouched (zero pollution).
       const cwd = (ctx as any)?.cwd ?? process.cwd();
       const agentDir = (ctx as any)?.agentDir ?? path.join(os.homedir(), ".pi", "agent");
+
+      // Load the role's domain skills from the researcher-skills/ directory.
+      // Uses pi's public loadSkillsFromDir (ESM: __dirname is undefined; use import.meta.url).
+      const _thisDir = path.dirname(fileURLToPath(import.meta.url));
+      const skillsDir = path.resolve(_thisDir, "..", "..", "roles", "researcher-skills");
+      const { skills: allSkills } = loadSkillsFromDir({ dir: skillsDir, source: "pi-roles-roles" });
+      const domainSkills: Skill[] = allSkills.filter((s) => role.skills.includes(s.name));
+
       const resourceLoader = new DefaultResourceLoader({
         cwd,
         agentDir,
         noSkills: false,
-        skillsOverride: makeRoleSkillsOverride({ domainSkills: [] }),
+        skillsOverride: makeRoleSkillsOverride({ domainSkills }),
       } as any);
 
       const id = deps.service.spawn({
