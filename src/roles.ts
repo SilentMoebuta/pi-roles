@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+
 export interface RoleDef {
   name: string;
   description: string;
@@ -11,7 +13,7 @@ export interface RoleDef {
 export const DEFAULT_MAX_TURNS = 25;
 
 export function parseRoleFrontmatter(file: string): RoleDef {
-  const raw = require("node:fs").readFileSync(file, "utf-8");
+  const raw = fs.readFileSync(file, "utf-8");
   const m = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (!m) throw new Error(`role file missing frontmatter: ${file}`);
   const fm = m[1];
