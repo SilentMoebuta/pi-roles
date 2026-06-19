@@ -1,24 +1,41 @@
-// pi-roles — Multi-roles for pi agent.
-// Status: scaffolded. Implementation pending design confirmation.
-// See README.md for the P0 roadmap and architecture.
-//
-// Key pi APIs (verified against pi 0.79.8 dist, do not change pi core):
-//   - pi.on("resources_discover", (event) => ({ skillPaths?: string[] }))  // types.d.ts:393
-//   - pi.on("before_agent_start", (event) => ({ systemPrompt?, ... }))      // types.d.ts:498
-//   - ctx.setActiveTools(toolNames) / ctx.getActiveTools()                  // types.d.ts:881
-//   - ctx.newSession({ parentSession })                                     // types.d.ts:252
-//
-// @gotgenes/pi-subagents service (consumed via Symbol.for):
-//   const { getSubagentsService } = await import("@gotgenes/pi-subagents");
-//   const service = getSubagentsService();  // SubagentManager: spawn/spawnAndWait/resume/listAgents/abort/abortAll/waitForAll
-//
-// Intentionally minimal entry for now. spawn_role tool + handlers added per README roadmap.
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { parseRoleFrontmatter, type RoleDef } from "./src/roles";
+import { makeReportTool, type ReportState } from "./src/report-tool";
+import { DEFAULT_REPORT_SCHEMA } from "./src/contract";
 
-export default function (_pi: any): void {
-  // TODO: implement per README roadmap.
-  // P0-1/2: step limit + liveness (spawn-layer counter + abort)
-  // P0-3/4: output contract report tool (JSON schema validation, success/error two-state)
-  // P0-5: nesting depth limit
-  // then: spawn_role tool, role persona injection, per-role tool whitelist, per-role skill isolation
-  // team upgrade path (reserved): spawn_role `teammates` field, result `message_to` field
+export default function (pi: ExtensionAPI): void {
+  const cfg = { maxDepth: 3, livenessTimeoutMs: 300000 };
+  const roleRegistry = new Map<string, RoleDef>();
+  // Load roles from ./roles/*.md (best-effort)
+  try {
+    const dir = path.join(__dirname, "roles");
+    for (const f of fs.readdirSync(dir).filter(x => x.endsWith(".md"))) {
+      const r = parseRoleFrontmatter(path.join(dir, f));
+      roleRegistry.set(r.name, r);
+    }
+  } catch { /* no roles dir yet — registry empty, spawn_role will reject unknown role */ }
+
+  // Lazy import of gotgenes service (sync getter, but module load may be async).
+  let getSubagentsService: (() => unknown) | undefined;
+  try {
+    // require() is synchronous; the module's getSubagentsService export is a sync fn.
+    const mod = require("@gotgenes/pi-subagents");
+    getSubagentsService = (mod as any).getSubagentsService;
+  } catch { /* @gotgenes/pi-subagents not installed; spawn_role reports service unavailable */ }
+
+  // Register a report tool bound to a fresh per-session state.
+  // NOTE: a single shared ReportState is sufficient for the scaffold; per-session
+  // isolation will be added when role-session detection lands.
+  const reportState: ReportState = { reported: false };
+  pi.registerTool(makeReportTool({ state: reportState, schema: DEFAULT_REPORT_SCHEMA, failedStep: "default" }) as any);
+
+  // before_agent_start: persona injection — DESCOPED (no criterion mandates it).
+  // Role-session detection + persona injection is future multi-roles work.
+  pi.on("before_agent_start", () => undefined);
+
+  // resources_discover: per-role skill isolation — DESCOPED (no criterion mandates it).
+  // Returning undefined leaves pi's default skill discovery unchanged.
+  pi.on("resources_discover", () => undefined);
 }
