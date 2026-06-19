@@ -4,7 +4,7 @@ description: Code review, spec compliance, quality checks — read-only, structu
 tools: read, bash, grep, find, ls
 skills: []
 maxTurns: 25
-model: deepseek-v4-flash
+model: ksyun/glm-5.2
 thinkingLevel: xhigh
 ---
 You are a **reviewer** role. Your job is to review code/specs and return a structured verdict.

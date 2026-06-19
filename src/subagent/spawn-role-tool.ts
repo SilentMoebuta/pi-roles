@@ -78,6 +78,7 @@ const Params = Type.Object({
     Type.Literal("foreground"),
     Type.Literal("background"),
   ], { description: "foreground (default) blocks until the role finishes; background returns immediately (Phase 5, not yet supported)." })),
+  model: Type.Optional(Type.String({ description: "Override the role's default model. Use provider/modelId (e.g. 'ksyun/glm-5.2') or bare id (e.g. 'deepseek-v4-flash'). If omitted, the role's preset model is used." })),
 });
 
 function okResult(details: unknown) {
@@ -90,7 +91,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
     label: "Spawn Role",
     description: "Spawn a role-scoped subagent with persona + tool whitelist + step limit. Foreground: blocks until the role reports its result via report_role_result. Returns {status, result|error, agentId}.",
     parameters: Params,
-    async execute(_toolCallId: string, params: { role: string; task: string; mode?: "foreground" | "background" }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: unknown) {
+    async execute(_toolCallId: string, params: { role: string; task: string; mode?: "foreground" | "background"; model?: string }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: unknown) {
       const mode = params.mode ?? "foreground";
       if (mode === "background") {
         return okResult({ status: "error", error: "background mode not supported in Phase 1 (use foreground)" });
@@ -125,9 +126,11 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
 
       // Resolve the role's model reference to a real Model object via the
       // tool ctx's modelRegistry (main session registry, in-memory credentials).
-      // If unresolvable, leave undefined → child inherits session default model.
+      // params.model overrides the role's default model (per-call override).
+      // If neither resolves, leave undefined → child inherits session default model.
+      const modelRef = params.model ?? role.model;
       const registry = (ctx as any)?.modelRegistry;
-      const resolvedModel = role.model && registry ? resolveModelRef(role.model, registry) : undefined;
+      const resolvedModel = modelRef && registry ? resolveModelRef(modelRef, registry) : undefined;
 
       // Phase 2: build a child resourceLoader with a role-specific skillsOverride.
       // The child's skill set = baseSkills (pi loads, skillsOverride receives) ∪

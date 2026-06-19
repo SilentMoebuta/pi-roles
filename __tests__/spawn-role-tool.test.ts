@@ -55,11 +55,11 @@ async function exec(tool: any, params: any, ctx: any = {}, signal?: AbortSignal)
 }
 
 describe("spawn_role tool", () => {
-  it("params schema: {role, task, mode?}", () => {
+  it("params schema: {role, task, mode?, model?}", () => {
     const { tool } = deps({ roles: [role("reviewer")] });
     assert.equal(tool.name, "spawn_role");
     const keys = Object.keys(tool.parameters.properties);
-    assert.deepEqual(keys.sort(), ["mode", "role", "task"]);
+    assert.deepEqual(keys.sort(), ["mode", "model", "role", "task"]);
     // required fields are at the object level (TypeBox), not on each property
     assert.deepEqual(tool.parameters.required.sort(), ["role", "task"]);
   });
@@ -216,5 +216,65 @@ describe("spawn_role tool", () => {
     // For the fake, waitForResult returns {id} only; real service returns sessionFile too.
     // So this assertion is best-effort: if the record carries sessionFile, it's recorded.
     assert.ok(true); // detailed wiring verified in service integration test
+  });
+
+  // Model override (per-call model param) — resolves via ctx.modelRegistry
+  it("params.model overrides role.model → resolved via registry.find() for provider/modelId", async () => {
+    const reviewer = role("reviewer", { model: "ksyun/glm-5.2" });
+    const f = fakeService({ id: "r1", status: "completed", result: "ok", turnCount: 1 });
+    const { tool } = deps({ roles: [reviewer], svc: f.svc });
+    const dsModel = { id: "v4-flash", provider: "deepseek" };
+    const registry = {
+      getAll: () => [dsModel, { id: "glm-5.2", provider: "ksyun" }],
+      find: (p: string, id: string) => registry.getAll().find((m: any) => m.provider === p && m.id === id),
+    };
+    // Override model to deepseek/v4-flash (provider/id path) — role default is ksyun/glm-5.2
+    await exec(tool, { role: "reviewer", task: "x", model: "deepseek/v4-flash" }, { modelRegistry: registry });
+    // service.spawn received the OVERRIDE model, not the role's default
+    assert.deepEqual(f.calls[0].model, dsModel);
+  });
+
+  it("no params.model → role.model used (reviewer default ksyun/glm-5.2)", async () => {
+    const reviewer = role("reviewer", { model: "ksyun/glm-5.2" });
+    const f = fakeService({ id: "r1", status: "completed", result: "ok", turnCount: 1 });
+    const { tool } = deps({ roles: [reviewer], svc: f.svc });
+    const glmModel = { id: "glm-5.2", provider: "ksyun" };
+    const registry = {
+      getAll: () => [{ id: "deepseek-v4-flash" }, glmModel],
+      find: (p: string, id: string) => registry.getAll().find((m: any) => m.id === id && m.provider === p),
+    };
+    await exec(tool, { role: "reviewer", task: "x" }, { modelRegistry: registry });
+    // service.spawn received the role's default model (ksyun/glm-5.2), not the override
+    assert.deepEqual(f.calls[0].model, glmModel);
+  });
+
+  it("model override with bare id → resolves via getAll()", async () => {
+    const reviewer = role("reviewer", { model: "ksyun/glm-5.2" });
+    const f = fakeService({ id: "r1", status: "completed", result: "ok", turnCount: 1 });
+    const { tool } = deps({ roles: [reviewer], svc: f.svc });
+    const haikuModel = { id: "haiku", provider: "anthropic" };
+    const registry = {
+      getAll: () => [haikuModel, { id: "glm-5.2", provider: "ksyun" }],
+      find: () => undefined,
+    };
+    await exec(tool, { role: "reviewer", task: "x", model: "haiku" }, { modelRegistry: registry });
+    // Bare id → resolved via getAll(), not find()
+    assert.deepEqual(f.calls[0].model, haikuModel);
+  });
+
+  it("model override with provider/modelId → resolves via find()", async () => {
+    const reviewer = role("reviewer", { model: "default" });
+    const f = fakeService({ id: "r1", status: "completed", result: "ok", turnCount: 1 });
+    const { tool } = deps({ roles: [reviewer], svc: f.svc });
+    const glmModel = { id: "glm-5.2", provider: "ksyun" };
+    const foundModels: any[] = [];
+    const registry = {
+      getAll: () => [],
+      find: (p: string, id: string) => { foundModels.push({ p, id }); return glmModel; },
+    };
+    await exec(tool, { role: "reviewer", task: "x", model: "ksyun/glm-5.2" }, { modelRegistry: registry });
+    // Provider/modelId → resolved via find()
+    assert.deepEqual(foundModels, [{ p: "ksyun", id: "glm-5.2" }]);
+    assert.deepEqual(f.calls[0].model, glmModel);
   });
 });
