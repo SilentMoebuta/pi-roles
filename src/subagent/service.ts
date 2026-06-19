@@ -1,0 +1,125 @@
+// SubagentsService — public subagent control surface for pi-roles.
+//
+// Exposes spawn (non-blocking, returns id) / getRecord / waitForResult / abort /
+// hasRunning / listAgents. waitForResult is the piece gotgenes' public API lacked
+// (its getRecord returned a promise-less snapshot, forcing callers to poll).
+//
+// spawn kicks off runSubagent async (fire-and-forget); the run settles the
+// registry's completion promise. abort(id) cancels via a per-run AbortController
+// whose signal the runner observes (→ session.abort()). Status from runtime, not
+// model text.
+
+import { SubagentRegistry, type SubagentRecord } from "./registry";
+import { runSubagent, type RunOutcome, type SubagentSession } from "./runner";
+import { spawnRole, type SpawnDeps } from "./spawn";
+
+export interface SubagentServiceParams {
+  role?: string;
+  task: string;
+  parentSessionId?: string;
+  tools?: string[];
+  model?: unknown;
+  thinkingLevel?: unknown;
+  maxTurns?: number;
+  livenessMs?: number;
+  /** Caller abort signal (e.g. parent turn ESC). */
+  signal?: AbortSignal;
+}
+
+interface RunHandle {
+  abortController: AbortController;
+}
+
+export class SubagentsService {
+  private registry = new SubagentRegistry();
+  private deps: SpawnDeps;
+  private cwd: string;
+  private agentDir: string;
+  private handles = new Map<string, RunHandle>();
+
+  constructor(deps: SpawnDeps, env: { cwd: string; agentDir: string }) {
+    this.deps = deps;
+    this.cwd = env.cwd;
+    this.agentDir = env.agentDir;
+  }
+
+  /** Spawn a subagent run. Returns its id immediately; the run proceeds async. */
+  spawn(params: SubagentServiceParams): string {
+    const id = this.registry.register();
+    const abortController = new AbortController();
+    this.handles.set(id, { abortController });
+
+    // Compose caller signal → our abort controller.
+    if (params.signal) {
+      if (params.signal.aborted) abortController.abort();
+      else params.signal.addEventListener("abort", () => abortController.abort(), { once: true });
+    }
+
+    // Fire-and-forget the run; settle the registry when done.
+    void this.runToCompletion(id, params, abortController.signal).catch((err) => {
+      this.registry.reject(id, err instanceof Error ? err : new Error(String(err)));
+    });
+
+    return id;
+  }
+
+  getRecord(id: string): SubagentRecord | undefined {
+    return this.registry.getRecord(id);
+  }
+
+  waitForResult(id: string): Promise<SubagentRecord> {
+    return this.registry.waitForResult(id);
+  }
+
+  /** Abort a running subagent. Returns true if a run was signalled to abort. */
+  abort(id: string): boolean {
+    const h = this.handles.get(id);
+    if (!h) return false;
+    if (h.abortController.signal.aborted) return false;
+    h.abortController.abort();
+    return true;
+  }
+
+  hasRunning(): boolean {
+    return this.registry.hasRunning();
+  }
+
+  listAgents(): string[] {
+    return this.registry.listAgents();
+  }
+
+  private async runToCompletion(
+    id: string,
+    params: SubagentServiceParams,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const { session } = await spawnRole(this.deps, {
+      cwd: this.cwd,
+      agentDir: this.agentDir,
+      parentSessionId: params.parentSessionId,
+      task: params.task,
+      tools: params.tools,
+      model: params.model,
+      thinkingLevel: params.thinkingLevel,
+    });
+    // Mark running now that the session exists.
+    const state = this.registry.stateOf(id);
+    state?.markRunning(Date.now());
+
+    const outcome: RunOutcome = await runSubagent(session, params.task, {
+      maxTurns: params.maxTurns,
+      signal,
+      livenessMs: params.livenessMs,
+    });
+
+    this.registry.resolve(id, (s) => {
+      if (outcome.status === "completed") {
+        s.markCompleted(outcome.finalText ?? "", Date.now());
+      } else if (outcome.status === "aborted") {
+        s.markAborted(Date.now());
+      } else {
+        s.markError(outcome.reason ?? "unknown error", Date.now());
+      }
+    }, outcome.reason, outcome.turnCount);
+  }
+}
