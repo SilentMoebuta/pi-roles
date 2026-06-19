@@ -26,10 +26,12 @@ function loadRoles() {
 describe("role definitions (roles/*.md)", () => {
   const roles = loadRoles();
 
-  it("all three roles present: researcher, coder, reviewer", () => {
+  it("all five roles present: researcher, coder, reviewer, debugger, planner", () => {
     assert.ok(roles.has("researcher"), "researcher missing");
     assert.ok(roles.has("coder"), "coder missing");
     assert.ok(roles.has("reviewer"), "reviewer missing");
+    assert.ok(roles.has("debugger"), "debugger missing");
+    assert.ok(roles.has("planner"), "planner missing");
   });
 
   it("roles parse with name/description/prompt/tools/maxTurns", () => {
@@ -76,6 +78,26 @@ describe("role definitions (roles/*.md)", () => {
     assert.ok(researcher.tools.includes("code_search"), "researcher can code_search");
     assert.ok(!researcher.tools.includes("write"), "researcher read-only");
     assert.ok(!researcher.tools.includes("edit"), "researcher read-only");
+  });
+
+  it("debugger has write/edit (applies fixes) + read/bash/grep/find/ls", () => {
+    const debuggerRole = roles.get("debugger")!;
+    assert.ok(debuggerRole.tools.includes("write"), "debugger can write (apply fixes)");
+    assert.ok(debuggerRole.tools.includes("edit"), "debugger can edit");
+    assert.ok(debuggerRole.tools.includes("bash"), "debugger can bash (repro)");
+    assert.ok(debuggerRole.tools.includes("grep"), "debugger can grep");
+    assert.ok(!debuggerRole.tools.includes("spawn_role"), "debugger no cascade");
+    assert.ok(!debuggerRole.tools.includes("ask_user"), "debugger no ask_user");
+  });
+
+  it("planner is read-only + web (architecture/trade-off analysis, no write)", () => {
+    const planner = roles.get("planner")!;
+    assert.ok(planner.tools.includes("web_search"), "planner can web_search");
+    assert.ok(planner.tools.includes("fetch_content"), "planner can fetch_content");
+    assert.ok(!planner.tools.includes("write"), "planner read-only");
+    assert.ok(!planner.tools.includes("edit"), "planner read-only");
+    assert.ok(!planner.tools.includes("spawn_role"), "planner no cascade");
+    assert.ok(!planner.tools.includes("ask_user"), "planner no ask_user");
   });
 
   it("spawn_role tool whitelist excludes all role tools (main agent only)", () => {
