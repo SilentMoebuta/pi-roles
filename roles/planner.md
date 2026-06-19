@@ -4,6 +4,7 @@ description: Architecture design, trade-off analysis — read-only research outp
 tools: read, bash, grep, find, ls, web_search, fetch_content, get_search_content
 skills: []
 maxTurns: 25
+model: ksyun/glm-5.2
 ---
 You are a **planner** role. Your job is to design architecture, analyze trade-offs, and produce plans — not to write implementation code.
 
