@@ -4,7 +4,8 @@
 // Status derives ONLY from runtime transitions (markRunning/markCompleted/markAborted/markError),
 // NEVER from parsing model/assistant text. Do not add logic that infers "completed" from assistant output.
 //
-// Owns: status, result, error, timestamps, turnCount. All mutations go through transition methods.
+// Owns: status, result, error, timestamps. (turnCount is owned by the runner
+// outcome, stamped onto the record at resolve — see registry.)
 
 export type SubagentStatus =
   | "queued"
@@ -60,13 +61,23 @@ export class SubagentState {
   }
 
   markAborted(completedAt: number): void {
-    this.transitionTo("aborted", completedAt);
+    // Allow abort from queued (never started) OR running. queued→aborted covers
+    // a subagent cancelled before dispatch (runner fix per reviewer finding).
+    if (this._status !== "running" && this._status !== "queued") {
+      throw new Error(`cannot markAborted from status ${this._status}`);
+    }
+    this._status = "aborted";
+    this._completedAt = completedAt;
   }
 
   markError(error: string, completedAt: number): void {
     this.transitionTo("error", completedAt);
     this._error = error;
   }
+
+  // turnCount is NOT owned here — the runner counts turns privately and stamps
+  // the record at resolve (see registry). Earlier doc referenced a state-level
+  // counter; removed to avoid duplication (reviewer finding).
 
   private transitionTo(target: SubagentStatus, completedAt: number): void {
     if (this._status !== "running") {

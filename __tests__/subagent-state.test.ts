@@ -75,8 +75,16 @@ describe("SubagentState", () => {
   it("throws if a terminal transition is attempted without running first", () => {
     const s = new SubagentState();
     assert.throws(() => s.markCompleted("x", 1));
-    assert.throws(() => s.markAborted(1));
     assert.throws(() => s.markError("e", 1));
+    // markAborted is allowed from queued (cancelled before dispatch)
+  });
+
+  it("markAborted allowed from queued (cancel-before-dispatch path)", () => {
+    const s = new SubagentState();
+    s.markAborted(5);
+    assert.equal(s.status, "aborted");
+    assert.equal(s.completedAt, 5);
+    assert.equal(s.isTerminal(), true);
   });
 
   it("incrementTurnCount removed — turnCount owned by runner outcome, stamped at resolve (see registry tests)", () => {

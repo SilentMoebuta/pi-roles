@@ -142,7 +142,7 @@ describe("spawn_role tool", () => {
     const f = fakeService();
     const { tool } = deps({ roles: [role("reviewer", { tools: ["read", "bash", "grep"] })], svc: f.svc });
     await exec(tool, { role: "reviewer", task: "x" });
-    assert.deepEqual(f.calls[0].tools, ["read", "bash", "grep"]);
+    assert.deepEqual(f.calls[0].tools, ["read", "bash", "grep", "report_role_result"]);
   });
 
   it("role maxTurns passed to service.spawn", async () => {

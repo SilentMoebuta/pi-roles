@@ -94,13 +94,19 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         return okResult({ status: "error", error: `unknown role: ${params.role}` });
       }
 
+      // The role's `tools` whitelist drives the child's createSession allowlist.
+      // BUT report_role_result is the output-contract tool — every role MUST be
+      // able to call it to report its structured result, so force-include it.
+      // (Anti-cascade is about spawn_role/subagent, not the read-only report tool.)
+      const childTools = Array.from(new Set([...role.tools, "report_role_result"]));
+
       const callerSessionFile = (deps.getCallerSessionFile ?? (() => (ctx as any)?.sessionManager?.getSessionFile?.()))();
 
       const id = deps.service.spawn({
         role: role.name,
         task: params.task,
         parentSessionId: callerSessionFile,
-        tools: role.tools,
+        tools: childTools,
         maxTurns: role.maxTurns,
         signal,
       });
