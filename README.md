@@ -1,7 +1,7 @@
 # pi-roles
 
 > Multi-roles for the [pi](https://github.com/earendil-works/pi) coding agent.
-> **Status:** Phase 5 complete (2026-06-20). DAG executor, dynamic Send, checkpoint/resume, planner→DAG bridge all shipped. 177 tests, tsc 0.
+> **Status:** Phase 5 complete + production hardening Tier 1-6 (2026-06-20). DAG executor, dynamic Send, checkpoint/resume, planner→DAG bridge, prod-wired tree-abort, proactive auto-compact + output-contract enforcement, OTel telemetry. 249 tests, tsc 0.
 
 ## What it does
 
@@ -55,13 +55,11 @@ roles/
 
 ## Test coverage
 
-177 tests, tsc exit 0. `npx tsx --test __tests__/*.test.ts`.
+249 tests, tsc exit 0. `npx tsx --test __tests__/*.test.ts`.
 
 ## Design docs
 
-- `docs/superpowers/specs/2026-06-20-pi-roles-phase5-complete-design.md`
-- `docs/superpowers/specs/2026-06-20-pi-roles-phase5-dag-design.md`
-- `docs/superpowers/plans/2026-06-20-pi-roles-phase5-implementation-plan.md`
+Design rationale and per-fix criteria IDs are documented in the commit history (each commit cites its criterion, e.g. c6b51c5 / c0e3ff6 / c05c88d / caff7f9 / c51ac1a) and in the per-role methodology `SKILL.md` files under `roles/*-skills/`. There are no in-repo design-doc files.
 
 ## Verification probes (independent process, bypasses pi module cache)
 
