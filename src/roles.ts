@@ -17,6 +17,9 @@ export interface RoleDef {
   /** Thinking level for this role (e.g. 'xhigh'). Default: inherit. */
   thinkingLevel?: string;
   outputSchema?: import("./contract").ReportSchema;
+  /** P1-1: per-tool deny patterns (glob-like). Key = tool name, value = deny patterns.
+   *  Populated when role frontmatter uses object-form tools: field. */
+  toolDenyRules?: Record<string, string[]>;
 }
 
 export const DEFAULT_MAX_TURNS = 25;
@@ -42,5 +45,30 @@ export function parseRoleFrontmatter(file: string): RoleDef {
   const description = get("description") ?? "";
   const model = get("model");
   const thinkingLevel = get("thinkingLevel");
-  return { name, description, prompt, tools, skills, maxTurns, canSpawn: false, teammates: [], model, thinkingLevel };
+  // P1-1: object-form tools → extract tool names + deny rules.
+  const toolDenyRules: Record<string, string[]> = {};
+  if (tools.length === 0 && fm.includes("tools:")) {
+    // Try object form parsing — find the tools: block
+    const toolsBlock = (fm.match(/^tools:\s*\n([\s\S]*?)(?=^\w+:|\$)/m)??[])[1];
+    if (toolsBlock) {
+      // Parse YAML-like: Bash: {allow: [...], deny: [...]}
+      const entries = toolsBlock.match(/^(\w+):\s*\{([^}]+)\}/gm);
+      if (entries) {
+        for (const entry of entries) {
+          const m = entry.match(/^(\w+):\s*\{([^}]+)\}/);
+          if (!m) continue;
+          const toolName = m[1];
+          tools.push(toolName);
+          const body = m[2];
+          const denyMatch = body.match(/deny:\s*\[([^\]]*)\]/);
+          if (denyMatch) {
+            toolDenyRules[toolName] = parseList(denyMatch[1]);
+          }
+        }
+      }
+    }
+  }
+  const def: RoleDef = { name, description, prompt, tools, skills, maxTurns, canSpawn: false, teammates: [], model, thinkingLevel };
+  if (Object.keys(toolDenyRules).length > 0) def.toolDenyRules = toolDenyRules;
+  return def;
 }
