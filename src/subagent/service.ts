@@ -22,6 +22,8 @@ export interface SubagentServiceParams {
   model?: any;       // resolved Model object (resolved by spawn-role-tool via ctx.modelRegistry)
   thinkingLevel?: unknown;
   resourceLoader?: unknown;
+  /** Optional customTools registered directly on the child session. */
+  customTools?: unknown[];
   maxTurns?: number;
   livenessMs?: number;
   /** Called with the child session file + role name once the session is created
@@ -118,6 +120,7 @@ export class SubagentsService {
       model: params.model,
       thinkingLevel: params.thinkingLevel,
       resourceLoader: params.resourceLoader,
+      customTools: params.customTools,
     });
     const session = spawnResult.session;
     // Notify caller of the child session file + role so the agent_end fallback

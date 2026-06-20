@@ -20,6 +20,8 @@ import * as os from "node:os";
 import { fileURLToPath } from "node:url";
 import type { RoleDef } from "../roles";
 import type { ReportState } from "../report-tool";
+import { makeReportTool } from "../report-tool";
+import { DEFAULT_REPORT_SCHEMA } from "../contract";
 import { makeRoleSkillsOverride } from "./skills-override";
 
 // Resolves a role frontmatter model reference (bare id 'deepseek-v4-flash' or
@@ -46,6 +48,7 @@ export interface SpawnToolService {
     model?: unknown;
     thinkingLevel?: unknown;
     resourceLoader?: unknown;
+    customTools?: unknown[];
     onSessionCreated?: (sessionFile: string, role: string) => void;
     signal?: AbortSignal;
   }): string;
@@ -186,6 +189,17 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         skillsOverride: makeRoleSkillsOverride({ domainSkills }),
       } as any);
 
+      // Phase 5 report_role_result fix: the skillsOverride resourceLoader does NOT
+      // register pi-roles' report_role_result tool (probed: isAllowedTool filters it
+      // out of active tools even though childTools includes it). Register it directly
+      // as a customTool on the child session — createAgentSession's customTools bypass
+      // the resourceLoader's extension set. The child gets its OWN ReportState (empty);
+      // the structured payload is recovered by service.ts scanning the child session's
+      // messages for the report_role_result toolCall (extractReportPayload), NOT via
+      // this state — so an isolated per-child state avoids polluting the parent's.
+      const childReportState: ReportState = { reported: new Set(), activeRole: new Map(), payloads: new Map() };
+      const childReportTool = makeReportTool({ state: childReportState, schema: DEFAULT_REPORT_SCHEMA, failedStep: role.name });
+
       const id = deps.service.spawn({
         role: role.name,
         task: params.task,
@@ -196,6 +210,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         model: resolvedModel,
         thinkingLevel: params.thinkingLevel ?? role.thinkingLevel,
         resourceLoader,
+        customTools: [childReportTool],
         onSessionCreated: (sessionFile, roleName) => {
           // Record the child's role BEFORE prompt runs, so the agent_end fallback
           // recognizes the session as a role session (in case the model never calls

@@ -32,6 +32,12 @@ export interface CreateSessionOpts {
    *  building its own default (sdk.js:66). Used by spawn_role to inject a
    *  role-specific skillsOverride (Phase 2 skill isolation). */
   resourceLoader?: unknown;
+  /** Optional customTools: ToolDefinition[] registered directly on the child
+   *  session (createAgentSession customTools param). Used to guarantee
+   *  report_role_result is registered even when the resourceLoader's extension
+   *  set doesn't surface it (the skillsOverride path doesn't register pi-roles'
+   *  tools, so isAllowedTool would filter report_role_result out of active tools). */
+  customTools?: unknown[];
 }
 
 export interface SpawnDeps {
@@ -52,6 +58,8 @@ export interface SpawnParams {
   thinkingLevel?: unknown;
   /** Optional resourceLoader with role-specific skillsOverride (Phase 2). */
   resourceLoader?: unknown;
+  /** Optional customTools registered directly on the child session (see CreateSessionOpts). */
+  customTools?: unknown[];
 }
 
 export interface SpawnResult {
@@ -80,6 +88,7 @@ export async function spawnRole(deps: SpawnDeps, params: SpawnParams): Promise<S
     model: params.model,
     thinkingLevel: params.thinkingLevel,
     resourceLoader: params.resourceLoader,
+    customTools: params.customTools,
   });
 
   return {

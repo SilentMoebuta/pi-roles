@@ -47,6 +47,7 @@ async function main() {
         cwd: opts.cwd, agentDir: opts.agentDir, sessionManager: opts.sessionManager,
         tools: opts.tools, model: fakeModel, thinkingLevel: opts.thinkingLevel as any,
         resourceLoader: opts.resourceLoader as any,
+        customTools: opts.customTools as any,
       });
       capturedSession = session;
       return { session: session as any };

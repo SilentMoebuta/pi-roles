@@ -51,6 +51,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
         model: opts.model,
         thinkingLevel: opts.thinkingLevel as any,
         resourceLoader: opts.resourceLoader as any,
+        customTools: opts.customTools as any,
       });
       return { session: session as any };
     },
