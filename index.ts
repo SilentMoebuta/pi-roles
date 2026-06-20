@@ -67,7 +67,14 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     roleRegistry,
     service,
     reportState,
-    notifyParent: (text: string) => pi.sendUserMessage(text),
+    // T3-4: deliverAs:'steer' queues the message after the parent's current
+    // turn finishes its tool calls (extensions.md). The bare pi.sendUserMessage(text)
+    // THROWS when the parent is streaming → the completion notification was
+    // silently swallowed. try/catch logs any residual failure (best-effort).
+    notifyParent: (text: string) => {
+      try { pi.sendUserMessage(text, { deliverAs: "steer" }); }
+      catch (e) { console.error("[pi-roles:notifyParent]", e); }
+    },
   }) as any);
 
   pi.registerTool(makeDagExecuteTool({
@@ -114,4 +121,14 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // resources_discover: per-role skill isolation — DESCOPED (no criterion mandates it).
   // Returning undefined leaves pi's default skill discovery unchanged.
   pi.on("resources_discover", () => undefined);
+
+  // T3-2: piggyback service.cleanup() on the MAIN session's agent_end (fires
+  // after each top-level prompt) to free terminal records + archived session files
+  // sooner than the inline-on-settle LRU cap alone. Only the main session triggers
+  // this — child subagent sessions load their own pi-roles instance (decisive
+  // fact), so this handler doesn't fire for them; their cleanup is via the LRU.
+  // ponytail: cleanup is best-effort; an exception here must not break the turn.
+  pi.on("agent_end", () => {
+    try { service.cleanup(0); } catch { /* best-effort */ }
+  });
 }

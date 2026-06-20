@@ -18,6 +18,11 @@ export interface SubagentSession {
   subscribe(listener: (event: SubagentEvent) => void): () => void;
   abort(): void;
   setActiveToolsByName(names: string[]): void;
+  // T3-1: expose the message log so extractReportPayload can scan it for the
+  // report_role_result toolCall WITHOUT an `as any` cast (pi's AgentSession
+  // provides this via get messages()). Minimal inline shape — keeps the surface
+  // narrow; extractReportPayload accepts any[] content.
+  messages?: Array<{ role: string; content: any[] }>;
   // bindExtensions fires the session_start event (the only emit point — see pi
   // core agent-session.js bindExtensions). Without it, the pi-roles
   // session_start handler that additively adds report_role_result to a role

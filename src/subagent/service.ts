@@ -69,12 +69,26 @@ export class SubagentsService {
   private archivedSessions = new Map<string, number>();
   private archiveSession: (sessionFile: string) => void;
 
-  constructor(deps: SpawnDeps, env: { cwd: string; agentDir: string; archiveSession?: (sessionFile: string) => void }) {
+  constructor(deps: SpawnDeps, env: { cwd: string; agentDir: string; archiveSession?: (sessionFile: string) => void; maxConcurrentSpawns?: number; maxTerminalRecords?: number }) {
     this.deps = deps;
     this.cwd = env.cwd;
     this.agentDir = env.agentDir;
     // P2-5: wrap archive to track timestamp.
-    this.maxConcurrentSpawns = 5;
+    // T3-5: configurable cap (default 5); a DAG with maxConcurrent>5 can now
+    // raise it instead of being silently throttled by the service gate.
+    this.maxConcurrentSpawns = env.maxConcurrentSpawns ?? 5;
+    // T3-2: bounded terminal-record growth. Default 1000 (long-lived runs).
+    this.registry.maxTerminalRecords = env.maxTerminalRecords ?? 1000;
+    // T3-2: prune the service's own Maps in lockstep with registry eviction so
+    // handles/children/agentToSessionFile don't outlive their records.
+    this.registry.onEvict = (ids) => {
+      for (const id of ids) {
+        this.handles.delete(id);
+        const sf = this.agentToSessionFile.get(id);
+        if (sf) { this.children.delete(sf); this.agentToSessionFile.delete(id); }
+        this.children.delete(id); // legacy agent-id keying fallback
+      }
+    };
     const rawArchive = env.archiveSession ?? defaultArchiveSession;
     this.archiveSession = (path: string) => {
       const ts = Date.now();
@@ -99,8 +113,17 @@ export class SubagentsService {
     }
 
     // Fire-and-forget the run; settle the registry when done.
+    // T3-3: if runToCompletion throws (e.g. spawnRole/createSession failed before
+    //  the runner started), registry.reject transitions state to 'error' AND we
+    //  fire onComplete here so a background-spawn parent's join doesn't wait
+    //  forever (was: onComplete sat after registry.resolve in the try, never
+    //  reached on the spawn-failure path).
     void this.runToCompletion(id, params, abortController.signal).catch((err) => {
-      this.registry.reject(id, err instanceof Error ? err : new Error(String(err)));
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.registry.reject(id, err instanceof Error ? err : new Error(errMsg));
+      try {
+        params.onComplete?.({ id, status: "error", error: errMsg, turnCount: 0 });
+      } catch { /* best-effort: notification failure doesn't affect the settled run */ }
     });
 
     // P0-2: track parent→child relationship for tree abort.
@@ -250,7 +273,7 @@ export class SubagentsService {
     // loads its own pi-roles instance with its own Map). This is the reliable
     // contract path: the structured {findings, artifacts} arguments the role
     // passed to report_role_result live in the assistant message's toolCall content.
-    const reportPayload = extractReportPayload((session as any).messages);
+    const reportPayload = extractReportPayload(session.messages);
 
     // B-cleanup: archive the child session file BEFORE resolving the registry,
     // so callers awaiting waitForResult see an already-archived session (no race

@@ -95,3 +95,20 @@ describe("createDenyRulesExtension", () => {
     assert.strictEqual(await h({ toolName: "bash", input: { command: "npm run build" } }, {} as any), undefined);
   });
 });
+
+describe("deny-rules — KNOWN BYPASS (T3-6, documented limitation)", () => {
+  // ponytail: deny-rules do raw-string glob matching on input.command.
+  // A `rm *` deny rule does NOT match a shell wrapper like `bash -c 'rm -rf /'`
+  // because the command doesn't start with 'rm'. OpenCode normalizes bash via
+  // tree-sitter; pi-roles does not (no shipped role uses deny-rules today —
+  // Tier 4 inert). A partial normalizer (strip bash -c / quotes) would create
+  // FALSE CONFIDENCE: nested wrappers (`env bash -c`, `sh -c 'bash -c ...'`,
+  // eval) still evade. So we DOCUMENT the bypass + lock it in here rather than
+  // ship a normalizer that operators might trust. Real fix = tree-sitter bash
+  // parsing (OpenCode pattern), gated on a role actually opting into deny-rules.
+  it("a `rm *` deny rule does NOT match `bash -c 'rm -rf /'` (shell-wrapper bypass — documented)", () => {
+    assert.ok(!globMatch("rm *", "bash -c 'rm -rf /'"),
+      "KNOWN BYPASS — deny-rules do raw-string matching; shell wrappers evade. " +
+      "Documented limitation, see ponytail comment in deny-rules.ts + this test.");
+  });
+});

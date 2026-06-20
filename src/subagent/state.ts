@@ -75,6 +75,16 @@ export class SubagentState {
     this._error = error;
   }
 
+  /** T3-3: error from the reject path — allows queued→error (spawn failed
+   *  before markRunning). markError requires 'running', so this is the
+   *  non-terminal-anyway variant. */
+  markErrorFromReject(error: string): void {
+    if (this.isTerminal()) return;
+    this._status = "error";
+    this._completedAt = Date.now();
+    this._error = error;
+  }
+
   // turnCount is NOT owned here — the runner counts turns privately and stamps
   // the record at resolve (see registry). Earlier doc referenced a state-level
   // counter; removed to avoid duplication (reviewer finding).

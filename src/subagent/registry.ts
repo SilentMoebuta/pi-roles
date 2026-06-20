@@ -38,6 +38,11 @@ interface Entry {
 export class SubagentRegistry {
   private entries = new Map<string, Entry>();
   private counter = 0;
+  /** T3-2: optional cap on terminal records; evicted inline on settle. */
+  maxTerminalRecords?: number;
+  /** T3-2: optional sink for evicted ids (so the service can prune its own
+   *  handles/children/agentToSessionFile/reportState maps in lockstep). */
+  onEvict?: (ids: string[]) => void;
 
   /** Create a new run entry. Returns its id. */
   register(): string {
@@ -90,19 +95,67 @@ export class SubagentRegistry {
     e.sessionFile = sessionFile;
     e.reportPayload = reportPayload;
     e.resolve(this.snapshot(e));
+    this.maybeEvict();
   }
 
-  /** Settle the run with an error (runner threw). Throws if already settled or unknown. */
+  /** Settle the run with an error (runner threw, OR spawn failed before the
+   *  runner started — T3-3). Transitions state to 'error' (was left 'queued' on
+   *  spawn-failure, so getRecord reported a dead run as still queued). */
   reject(id: string, err: Error): void {
     const e = this.entries.get(id);
     if (!e) throw new Error(`unknown subagent id: ${id}`);
     if (e.settled) throw new Error(`subagent ${id} already settled`);
     e.settled = true;
+    // T3-3: force-error the state if it's still non-terminal (spawn failed before
+    // markRunning). markError requires 'running', so set directly for the queued case.
+    if (!e.state.isTerminal()) {
+      e.state.markErrorFromReject(err.message);
+    }
     e.reject(err);
+    this.maybeEvict();
+  }
+
+  private maybeEvict(): void {
+    if (!this.maxTerminalRecords) return;
+    const before = [...this.entries.keys()];
+    const n = this.evictTerminal(this.maxTerminalRecords);
+    if (n > 0 && this.onEvict) {
+      const after = new Set(this.entries.keys());
+      this.onEvict(before.filter((id) => !after.has(id)));
+    }
   }
 
   listAgents(): string[] {
     return [...this.entries.keys()];
+  }
+
+  /** T3-2: evict the oldest TERMINAL records until at most `cap` remain.
+   *  Never touches in-flight (unsettled) records. Map insertion-order gives
+   *  'oldest' with no access-time bookkeeping (terminal records aren't re-accessed).
+   *  Returns the count evicted. */
+  evictTerminal(cap: number): number {
+    if (cap <= 0) return 0;
+    let evicted = 0;
+    while (this.countTerminal() > cap) {
+      // Find the first terminal entry by insertion order and remove it.
+      let removed = false;
+      for (const [id, e] of this.entries) {
+        if (e.settled && e.state.isTerminal()) {
+          this.entries.delete(id);
+          evicted++;
+          removed = true;
+          break;
+        }
+      }
+      if (!removed) break; // no terminal to evict (rest are in-flight)
+    }
+    return evicted;
+  }
+
+  private countTerminal(): number {
+    let n = 0;
+    for (const e of this.entries.values()) if (e.settled && e.state.isTerminal()) n++;
+    return n;
   }
 
   hasRunning(): boolean {

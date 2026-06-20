@@ -281,6 +281,13 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       while (retries > 0 && (rec.status === "aborted" || rec.status === "error")) {
         const delay = (3 - retries + 1) * 500; // 500ms, 1s, 2s
         await new Promise(r => setTimeout(r, delay));
+        // T3-7: reconstruct childReportState + childReportTool per retry attempt.
+        // Reusing the outer-scope instances left attempt 1's `reported`/`payloads`
+        // in the shared state → on a degenerate session key ('default' fallback)
+        // attempt 2 falsely hit duplicate_report. resourceLoader is stateless
+        // (reconstructing re-reads 5 skills dirs = pessimization), so it's reused.
+        const retryReportState: ReportState = { reported: new Set(), activeRole: new Map(), payloads: new Map() };
+        const retryReportTool = makeReportTool({ state: retryReportState, schema: role.outputSchema ?? DEFAULT_REPORT_SCHEMA, failedStep: role.name });
         const newId = deps.service.spawn({
           role: role.name,
           task: params.task,
@@ -291,7 +298,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
           model: resolvedModel,
           thinkingLevel: params.thinkingLevel ?? role.thinkingLevel,
           resourceLoader,
-          customTools: [childReportTool],
+          customTools: [retryReportTool],
           onSessionCreated,
           signal,
         });

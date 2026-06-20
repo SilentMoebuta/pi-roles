@@ -28,6 +28,14 @@ export function globMatch(pattern: string, text: string): boolean {
 export function extractCommand(toolName: string, input: Record<string, unknown>): string {
   // bash: input.command; read/write/edit: input.path or input.file_path;
   // grep: input.pattern; generic: fall back to JSON of input
+  // ponytail: KNOWN BYPASS — raw-string matching on input.command. A `rm *` deny
+  // rule does NOT match `bash -c 'rm -rf /'` (command doesn't start with 'rm').
+  // OpenCode normalizes bash via tree-sitter; we don't (no shipped role uses
+  // deny-rules today — Tier 4 inert). A partial normalizer (strip bash -c / quotes)
+  // would create FALSE CONFIDENCE (nested wrappers like `env bash -c`, `sh -c
+  // 'bash -c ...'`, eval still evade) — worse than documenting. Lock-in test
+  // in __tests__/deny-rules.test.ts (KNOWN BYPASS). Upgrade path: tree-sitter
+  // bash parsing, gated on a role opting into deny-rules (Tier 4).
   if (typeof input.command === "string") return input.command;
   if (typeof input.path === "string") return input.path;
   if (typeof input.file_path === "string") return input.file_path;
