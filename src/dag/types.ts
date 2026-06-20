@@ -29,6 +29,9 @@ export interface WaveResult {
   failures: NodeResult[];
 }
 
+// Reserved for structured error typing (5d design). The executor currently
+// propagates predecessor failures via the string errorContextPrefix() in
+// state.ts; this structured type is the future shape for Send/checkpoint (5c/5e,// deferred) and is kept here so the public surface is stable.
 export interface ErrorContext {
   failedNode: string;
   errorType: "step-limit" | "caller-abort" | "timeout" | "runtime-error";

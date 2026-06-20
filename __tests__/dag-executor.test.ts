@@ -63,4 +63,21 @@ describe("dag executor (waves + barrier + partial failure)", () => {
     const r = await executeDAG(spec, fakeSpawn({ a: { status: "failed", error: "x" } }));
     assert.equal(r.status, "failed");
   });
+
+  it("spawn-phase rejection does NOT abort sibling spawns (allSettled on spawn too)", async () => {
+    const spec: DAGSpec = { nodes: {
+      a: { role: "coder", task: "[node:a] do a" },
+      b: { role: "coder", task: "[node:b] do b" },
+    }};
+    // spawnFn rejects for node 'a' (e.g. bad role/config), succeeds for 'b'.
+    const spawnFn: SpawnFn = async (_role, task) => {
+      if (task.includes("[node:a]")) throw new Error("spawn rejected: bad role config");
+      return { agentId: "b", wait: async () => ({ status: "completed" as const, result: { findings: ["b ok"], artifacts: [] }, reportPayload: { findings: ["b ok"], artifacts: [] } }) };
+    };
+    const r = await executeDAG(spec, spawnFn);
+    assert.equal(r.status, "partial");
+    assert.equal(r.waves[0].failures.length, 1, "node a's rejected spawn → failed");
+    assert.match(r.waves[0].failures[0].error ?? "", /spawn rejected/);
+    assert.equal(r.waves[0].successes.length, 1, "sibling b still spawned + completed (spawn-phase isolation)");
+  });
 });

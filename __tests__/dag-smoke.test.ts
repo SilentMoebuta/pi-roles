@@ -62,10 +62,8 @@ describe("dag smoke — multi-wave end-to-end", () => {
     assert.ok(r.finalContext.c, "c ran and its result preserved (downstream continued)");
   });
 
-  it("does not throw and never touches AgentHandle (clone-safe by construction)", async () => {
+  it("minimal DAG completes without rejecting", async () => {
     const spec: DAGSpec = { nodes: { a: { role: "coder", task: "[node:a] x" } }};
-    // If executor imported/constructed AgentHandle this would couple to the
-    // clone-unsafe type; it does not — it uses the injected spawnFn only.
     await assert.doesNotReject(async () => executeDAG(spec, serviceShapedSpawn({})));
   });
 });
