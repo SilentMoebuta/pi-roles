@@ -77,4 +77,32 @@ describe("dag checkpoint (5e) — serialize/deserialize + resume", () => {
     assert.equal(r.status, "completed");
     assert.deepEqual(r.finalContext.a, { findings: ["done"], artifacts: [] });
   });
+
+  it("resume fans out a dynamic node in a PENDING wave (M1 fix — no longer silently static)", async () => {
+    // Wave 0: static 'prep' (checkpointed as done). Wave 1: dynamic 'fanout'
+    // still pending — resume must fan it out (3 spawns), NOT run it as 1 static.
+    const spec: DAGSpec = { nodes: {
+      prep: { role: "coder", task: "[node:prep] prepare" },
+      fanout: {
+        role: "planner",
+        task: "[node:fanout] decompose",
+        depends_on: ["prep"],
+        dynamic: async () => [
+          { role: "coder", arg: "[node:fanout] w1" },
+          { role: "coder", arg: "[node:fanout] w2" },
+          { role: "coder", arg: "[node:fanout] w3" },
+        ],
+      },
+    }};
+    const cp = makeCheckpoint(spec, [
+      { wave: 0, successes: [{ nodeId: "prep", status: "completed", result: { findings: ["prep-done"], artifacts: [] } }], failures: [] },
+    ]);
+    let spawnCount = 0;
+    const spawnFn: SpawnFn = async () => { spawnCount++; return { agentId: `s${spawnCount}`, wait: async () => ({ status: "completed", reportPayload: { findings: [`w${spawnCount}`], artifacts: [] } }) }; };
+    const r = await resumeDAG(cp, spawnFn);
+    assert.equal(spawnCount, 3, "dynamic node fanned out 3 spawns on resume (NOT 1 static)");
+    assert.equal(r.status, "completed");
+    assert.equal(r.finalContext.fanout.findings.length, 3, "3 dynamic results merged");
+    assert.deepEqual(r.finalContext.prep, { findings: ["prep-done"], artifacts: [] }, "checkpointed result preserved");
+  });
 });

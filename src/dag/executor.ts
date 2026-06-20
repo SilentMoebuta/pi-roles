@@ -8,7 +8,7 @@
 import type { DAGSpec, WaveResult, NodeResult, DAGResult } from "./types";
 import { planWaves } from "./planner";
 import { aggregateWaves, errorContextPrefix } from "./state";
-import { fanOutSends, sendToTask } from "./send";
+import { fanOutSends } from "./send";
 
 export type SpawnOutcomeStatus = "completed" | "aborted" | "error" | "failed";
 
@@ -26,12 +26,25 @@ export interface SpawnHandle {
 
 export type SpawnFn = (role: string, task: string) => Promise<SpawnHandle>;
 
-export async function executeDAG(spec: DAGSpec, spawnFn: SpawnFn): Promise<DAGResult> {
-  const waves = planWaves(spec);
-  const waveResults: WaveResult[] = [];
-  const nodeResults = new Map<string, NodeResult>();
+/** Internal options shared by executeDAG and resumeDAG (5e delegates to core). */
+interface ExecuteOptions {
+  /** Results already known (from a checkpoint) — seeds nodeResults so downstream
+   *  nodes see upstream state. Used by resumeDAG. */
+  initialNodeResults?: Map<string, NodeResult>;
+  /** Skip waves before this index (already completed in a checkpoint). */
+  startWaveIndex?: number;
+  /** Wave results carried over from the checkpoint (prepended to the result). */
+  priorWaveResults?: WaveResult[];
+}
 
-  for (const wave of waves) {
+export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: ExecuteOptions = {}): Promise<DAGResult> {
+  const waves = planWaves(spec);
+  const waveResults: WaveResult[] = [...(opts.priorWaveResults ?? [])];
+  const nodeResults = new Map<string, NodeResult>(opts.initialNodeResults ?? []);
+  const startWaveIndex = opts.startWaveIndex ?? 0;
+
+  for (let wi = startWaveIndex; wi < waves.length; wi++) {
+    const wave = waves[wi];
     // PARALLEL spawn (allSettled — a rejecting spawnFn does NOT abort siblings).
     // A node may be static (1 handle) or dynamic (Phase 5c: returns Send[] → N handles).
     const spawned = await Promise.allSettled(
@@ -50,7 +63,14 @@ export async function executeDAG(spec: DAGSpec, spawnFn: SpawnFn): Promise<DAGRe
             if (nr?.status === "completed" && nr.result) deps[d] = nr.result;
           }
           const sends = await n.dynamic({ nodeId: n.id, dependencies: deps });
-          handles = await fanOutSends(sends, spawnFn);
+          const fanned = await fanOutSends(sends, spawnFn);
+          // fanOutSends uses allSettled: a rejecting Send → undefined. Replace
+          // undefined with a synthetic failed handle so the wait phase marks
+          // the dynamic node failed (per-Send isolation, mirrors spawn allSettled).
+          handles = fanned.map((h, i) => h ?? {
+            agentId: `failed-send-${i}`,
+            wait: async () => ({ status: "failed" as const, error: "send spawn rejected" }),
+          });
         } else {
           handles = [await spawnFn(n.role, task)];
         }
@@ -114,4 +134,9 @@ export async function executeDAG(spec: DAGSpec, spawnFn: SpawnFn): Promise<DAGRe
   }
 
   return aggregateWaves(waveResults);
+}
+
+/** Execute a full DAG from scratch. */
+export async function executeDAG(spec: DAGSpec, spawnFn: SpawnFn): Promise<DAGResult> {
+  return executeDAGCore(spec, spawnFn);
 }

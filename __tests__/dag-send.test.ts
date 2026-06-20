@@ -44,4 +44,21 @@ describe("dag send — dynamic fan-out", () => {
     await fanOutSends(sends, spawnFn);
     assert.deepEqual(spawned.sort(), ["sub-task-0", "sub-task-1", "sub-task-2"]);
   });
+
+  it("fanOutSends uses allSettled — a rejecting Send does NOT abort the others (L2 fix)", async () => {
+    const spawnFn: SpawnFn = async (role, task) => {
+      if (task === "bad") throw new Error("spawn rejected");
+      return handle(task);
+    };
+    const sends: Send[] = [
+      { role: "coder", arg: "ok-1" },
+      { role: "coder", arg: "bad" },
+      { role: "coder", arg: "ok-2" },
+    ];
+    const handles = await fanOutSends(sends, spawnFn);
+    assert.equal(handles.length, 3);
+    assert.equal(handles[0] !== undefined, true, "ok-1 spawned");
+    assert.equal(handles[1], undefined, "bad Send → undefined (isolated, not thrown)");
+    assert.equal(handles[2] !== undefined, true, "ok-2 still spawned despite bad");
+  });
 });
