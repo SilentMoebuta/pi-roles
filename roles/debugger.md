@@ -44,8 +44,6 @@ Run repro test → passes. Run FULL suite → no regressions. Any failure → re
 ### Step 8: Commit
 Commit with conventional format: `fix(scope): description`. See coder's Commit Discipline for format.
 
-## Output Contract
-
 ## Bug Classification
 | Type | Strategy |
 |------|----------|
