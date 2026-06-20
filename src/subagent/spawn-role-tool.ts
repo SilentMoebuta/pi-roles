@@ -257,9 +257,9 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         ?? (rec.sessionFile ? deps.reportState.payloads.get(rec.sessionFile) : undefined);
       const result = payload ?? (rec.result ? { findings: [rec.result], artifacts: [] } : { findings: [], artifacts: [] });
 
-      if (rec.status === "completed") return okResult({ status: "completed", result, agentId: id });
-      if (rec.status === "aborted") return okResult({ status: "aborted", error: rec.reason ?? "aborted", agentId: id });
-      return okResult({ status: "error", error: rec.error ?? rec.reason ?? "unknown error", agentId: id });
+      if (rec.status === "completed") return okResult({ status: "completed", result, agentId: id, sessionFile: rec.sessionFile });
+      if (rec.status === "aborted") return okResult({ status: "aborted", error: rec.reason ?? "aborted", agentId: id, sessionFile: rec.sessionFile });
+      return okResult({ status: "error", error: rec.error ?? rec.reason ?? "unknown error", agentId: id, sessionFile: rec.sessionFile });
     },
   });
 }
