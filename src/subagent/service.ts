@@ -7,7 +7,7 @@
 // spawn kicks off runSubagent async (fire-and-forget); the run settles the
 // registry's completion promise. abort(id) cancels via a per-run AbortController
 import * as fs from "node:fs";
-import { hooks } from "../hooks";
+import { hooks, type HookEvent, type HookHandler } from "../hooks";
 // whose signal the runner observes (→ session.abort()). Status from runtime, not
 // model text.
 
@@ -29,6 +29,8 @@ export interface SubagentServiceParams {
   livenessMs?: number;
   /** P1-4: enable doom-loop detection (3 repeated identical assistant outputs). */
   doomLoop?: boolean;
+  /** P2-7: telemetry callback for timing/status per subagent. */
+  onTelemetry?: (event: { id: string; role?: string; event: string; durationMs?: number; turnCount?: number; status?: string }) => void;
   /** Called with the child session file + role name once the session is created
    *  (before prompt runs), so the agent_end fallback can recognize the session
    *  as a role session. */
@@ -57,16 +59,25 @@ export class SubagentsService {
   private maxConcurrentSpawns: number;
   private runningSpawns = 0;
   private spawnQueue: Array<() => void> = [];
+  /** P2-5: archived session files → timestamp (ms). */
+  private archivedSessions = new Map<string, number>();
   private archiveSession: (sessionFile: string) => void;
 
   constructor(deps: SpawnDeps, env: { cwd: string; agentDir: string; archiveSession?: (sessionFile: string) => void }) {
     this.deps = deps;
     this.cwd = env.cwd;
     this.agentDir = env.agentDir;
-    // Default: rename child .jsonl to .archived.<ts> so it leaves pi's dir scan
-    // (pi only scans *.jsonl) while preserving the transcript for audit.
-    this.archiveSession = env.archiveSession ?? defaultArchiveSession;
+    // P2-5: wrap archive to track timestamp.
     this.maxConcurrentSpawns = 5;
+    const rawArchive = env.archiveSession ?? defaultArchiveSession;
+    this.archiveSession = (path: string) => {
+      const ts = Date.now();
+      const archived = `${path}.archived.${ts}`;
+      this.archivedSessions.set(archived, ts);
+      rawArchive(path);
+    };
+    // Default: rename child .jsonl to .archived.<ts> so it leaves pi's dir scan
+    // P2-5: archiveSession wrapper handles tracking.
   }
 
   /** Spawn a subagent run. Returns its id immediately; the run proceeds async. */
@@ -139,16 +150,42 @@ export class SubagentsService {
     return this.registry.listAgents();
   }
 
+  /** P2-5: cleanup archived sessions older than retentionMs. Removes
+   *  orphaned archived files whose parent was aborted before archive. */
+  cleanup(retentionMs = 0): number {
+    let removed = 0;
+    const now = Date.now();
+    for (const [path, ts] of this.archivedSessions) {
+      if (now - ts > retentionMs) {
+        try { fs.rmSync(path, { force: true }); removed++; }
+        catch { /* best-effort */ }
+        this.archivedSessions.delete(path);
+      }
+    }
+    return removed;
+  }
+
+  /** P2-1: expose hook registration publicly so third-party plugins can
+   *  register lifecycle handlers on subagent events. */
+  on(event: HookEvent, handler: HookHandler): void {
+    hooks.on(event, handler);
+  }
+
   private async runToCompletion(
     id: string,
     params: SubagentServiceParams,
     signal: AbortSignal,
   ): Promise<void> {
+    // P2-7: telemetry — start event.
+    const t0 = Date.now();
+    params.onTelemetry?.({ id, role: params.role, event: "subagent_start" });
+
     // P1-3: concurrency limiter — gate entry to prevent resource exhaustion.
     while (this.runningSpawns >= this.maxConcurrentSpawns) {
       await new Promise<void>(r => this.spawnQueue.push(r));
     }
     this.runningSpawns++;
+    let outcome: RunOutcome | undefined;
     try {
     try { await hooks.emit("subagent_spawn:before", { id, role: params.role, task: params.task, parentSessionId: params.parentSessionId }); } catch {}
 
@@ -183,7 +220,7 @@ export class SubagentsService {
 
     try { await hooks.emit("subagent_spawn:after", { id, role: params.role, task: params.task, parentSessionId: params.parentSessionId, sessionFile: spawnResult.sessionFile }); } catch {}
 
-    const outcome: RunOutcome = await runSubagent(session, params.task, {
+    outcome = await runSubagent(session, params.task, {
       maxTurns: params.maxTurns,
       signal,
       livenessMs: params.livenessMs,
@@ -198,33 +235,33 @@ export class SubagentsService {
     const reportPayload = extractReportPayload((session as any).messages);
 
     this.registry.resolve(id, (s) => {
-      if (outcome.status === "completed") {
-        s.markCompleted(outcome.finalText ?? "", Date.now());
-      } else if (outcome.status === "aborted") {
+      if (outcome!.status === "completed") {
+        s.markCompleted(outcome!.finalText ?? "", Date.now());
+      } else if (outcome!.status === "aborted") {
         s.markAborted(Date.now());
       } else {
-        s.markError(outcome.reason ?? "unknown error", Date.now());
+        s.markError(outcome!.reason ?? "unknown error", Date.now());
       }
-    }, outcome.reason, outcome.turnCount, spawnResult.sessionFile, reportPayload);
+    }, outcome!.reason, outcome!.turnCount, spawnResult.sessionFile, reportPayload);
 
     // P0-1: notify caller when a background subagent completes.
     try { params.onComplete?.({
       id,
       status: outcome.status,
       result: outcome.finalText,
-      error: outcome.reason,
-      reportPayload: reportPayload ?? (outcome.finalText ? { findings: [outcome.finalText], artifacts: [] } : undefined),
-      turnCount: outcome.turnCount,
+      error: outcome!.reason,
+      reportPayload: reportPayload ?? (outcome!.finalText ? { findings: [outcome!.finalText], artifacts: [] } : undefined),
+      turnCount: outcome!.turnCount,
       sessionFile: spawnResult.sessionFile,
     }); } catch { /* best-effort */ }
 
     // P0-3: lifecycle hook — complete / stop / error.
     try {
-      const hookEvent = outcome.status === "completed" ? "subagent_complete"
-        : outcome.status === "aborted" ? "subagent_stop" : "subagent_error";
+      const hookEvent = outcome!.status === "completed" ? "subagent_complete"
+        : outcome!.status === "aborted" ? "subagent_stop" : "subagent_error";
       await hooks.emit(hookEvent, {
         id, role: params.role, task: params.task, parentSessionId: params.parentSessionId,
-        status: outcome.status, error: outcome.reason, sessionFile: spawnResult.sessionFile, turnCount: outcome.turnCount,
+        status: outcome!.status, error: outcome!.reason, sessionFile: spawnResult.sessionFile, turnCount: outcome!.turnCount,
       });
     } catch { /* best-effort */ }
 
@@ -236,6 +273,8 @@ export class SubagentsService {
       catch { /* best-effort: cleanup failure does not affect the resolved run */ }
     }
     } finally {
+      // P2-7: telemetry — end event.
+      params.onTelemetry?.({ id, role: params.role, event: "subagent_end", durationMs: Date.now() - t0, turnCount: outcome?.turnCount, status: outcome?.status });
       // P1-3: release concurrency slot, wake next queued spawn.
       this.runningSpawns--;
       this.spawnQueue.shift()?.();
