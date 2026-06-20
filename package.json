@@ -17,6 +17,7 @@
   "files": [
     "index.ts",
     "src",
+    "skills",
     "roles",
     "__tests__",
     "README.md",
