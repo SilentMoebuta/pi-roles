@@ -50,6 +50,7 @@ export interface SpawnToolService {
     resourceLoader?: unknown;
     customTools?: unknown[];
     onSessionCreated?: (sessionFile: string, role: string) => void;
+    onComplete?: (rec: { id: string; status: string; result?: string; error?: string; reportPayload?: { findings: string[]; artifacts: string[] }; turnCount: number; sessionFile?: string }) => void;
     signal?: AbortSignal;
   }): string;
   waitForResult(id: string): Promise<SpawnToolRecord>;
@@ -78,6 +79,9 @@ export interface SpawnToolDeps {
   /** Caller's own session file — becomes the child's parentSession id. */
   getCallerSessionFile?: () => string | undefined;
   now?: () => number;
+  /** P0-1: inject a message into the parent session (pi.sendUserMessage).
+   *  Used by background mode to notify the parent when a child completes. */
+  notifyParent?: (text: string) => void;
 }
 
 const Params = Type.Object({
@@ -219,6 +223,20 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
           console.error(`[pi-roles:spawn] recorded activeRole[${sessionFile}]=${roleName}`);
         },
         signal,
+        // P0-1: for background mode, notify parent when child completes.
+        onComplete: mode === "background" && deps.notifyParent
+          ? (rec: { id: string; status: string; result?: string; reportPayload?: { findings: string[]; artifacts: string[] }; sessionFile?: string }) => {
+              const payload = rec.reportPayload
+                ?? (rec.result ? { findings: [rec.result], artifacts: [] } : { findings: [], artifacts: [] });
+              deps.notifyParent!(
+                `[Background task ${rec.id} (${params.role}) completed: ${rec.status}]\nFindings: ${JSON.stringify(payload.findings)}\nArtifacts: ${JSON.stringify(payload.artifacts)}`
+              );
+              // Also store the payload in reportState for join to pick up.
+              if (rec.sessionFile) {
+                deps.reportState.payloads.set(rec.sessionFile, payload);
+              }
+            }
+          : undefined,
       });
 
       // ponytail: background mode returns agentId only — no AgentHandle is

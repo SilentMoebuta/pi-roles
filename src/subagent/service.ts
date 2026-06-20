@@ -30,6 +30,10 @@ export interface SubagentServiceParams {
    *  (before prompt runs), so the agent_end fallback can recognize the session
    *  as a role session. */
   onSessionCreated?: (sessionFile: string, role: string) => void;
+  /** P0-1: called when the background subagent completes, with the resolved
+   *  record (status, result, reportPayload, turnCount). Fires asynchronously
+   *  after the run settles — the spawn call has already returned. */
+  onComplete?: (rec: { id: string; status: string; result?: string; error?: string; reportPayload?: { findings: string[]; artifacts: string[] }; turnCount: number; sessionFile?: string }) => void;
   /** Caller abort signal (e.g. parent turn ESC). */
   signal?: AbortSignal;
 }
@@ -183,6 +187,17 @@ export class SubagentsService {
         s.markError(outcome.reason ?? "unknown error", Date.now());
       }
     }, outcome.reason, outcome.turnCount, spawnResult.sessionFile, reportPayload);
+
+    // P0-1: notify caller when a background subagent completes.
+    params.onComplete?.({
+      id,
+      status: outcome.status,
+      result: outcome.finalText,
+      error: outcome.reason,
+      reportPayload: reportPayload ?? (outcome.finalText ? { findings: [outcome.finalText], artifacts: [] } : undefined),
+      turnCount: outcome.turnCount,
+      sessionFile: spawnResult.sessionFile,
+    });
 
     // B-cleanup: archive the child session file so it leaves pi's session-tree
     // dir scan (pi only scans *.jsonl). Transcript preserved for audit.

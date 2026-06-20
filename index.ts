@@ -67,6 +67,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     roleRegistry,
     service,
     reportState,
+    notifyParent: (text: string) => pi.sendUserMessage(text),
   }) as any);
 
   pi.registerTool(makeDagExecuteTool({

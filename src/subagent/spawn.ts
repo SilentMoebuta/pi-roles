@@ -60,6 +60,8 @@ export interface SpawnParams {
   resourceLoader?: unknown;
   /** Optional customTools registered directly on the child session (see CreateSessionOpts). */
   customTools?: unknown[];
+  /** P0-1: called when the background subagent completes. */
+  onComplete?: (rec: { id: string; status: string; result?: string; error?: string; reportPayload?: { findings: string[]; artifacts: string[] }; turnCount: number; sessionFile?: string }) => void;
 }
 
 export interface SpawnResult {
