@@ -30,7 +30,7 @@ import { makeRoleSkillsOverride } from "./skills-override";
 // modelRegistry (ExtensionContext.modelRegistry — the main session's registry,
 // with in-memory credentials, so children reuse auth, not re-read disk).
 // findExactModelReferenceMatch is not a public pi export, so we scan getAll().
-function resolveModelRef(modelRef: string, registry: { getAll(): any[]; find(provider: string, id: string): any | undefined }): any | undefined {
+export function resolveModelRef(modelRef: string, registry: { getAll(): any[]; find(provider: string, id: string): any | undefined }): any | undefined {
   const slash = modelRef.indexOf("/");
   if (slash > 0) {
     return registry.find(modelRef.slice(0, slash), modelRef.slice(slash + 1));

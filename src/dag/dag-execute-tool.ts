@@ -15,6 +15,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
 import { executeDAGCore, type SpawnFn } from "./executor";
+import { resolveModelRef } from "../subagent/spawn-role-tool";
 import type { DAGSpec, NodePayload } from "./types";
 import type { RoleDef } from "../roles";
 import type { ReportState } from "../report-tool";
@@ -46,8 +47,18 @@ export interface DagExecuteDeps {
 // node, this mirrors spawn-role-tool's preamble: force-include report_role_result
 // in childTools, inject skillsOverride resourceLoader + customTools, and resolve
 // the role's model. The executor calls this once per node per wave.
-export function buildSpawnFn(deps: DagExecuteDeps): SpawnFn {
+// T1-4: now accepts {modelRegistry, signal, getCallerSessionFile} so the tool's
+// AbortSignal + ctx.modelRegistry + caller sessionFile flow into each child
+// (was: signal/model/parentSessionId all undefined → mid-DAG abort leaked
+// children, role.model ignored, DAG nodes outside the tree-abort tree).
+export interface BuildSpawnFnOpts {
+  modelRegistry?: { getAll(): any[]; find(provider: string, id: string): any | undefined };
+  signal?: AbortSignal;
+  getCallerSessionFile?: () => string | undefined;
+}
+export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}): SpawnFn {
   const { roleRegistry, service, cwd, agentDir } = deps;
+  const { modelRegistry, signal, getCallerSessionFile } = opts;
   const _thisDir = path.dirname(fileURLToPath(import.meta.url));
   const roleSkillsDirs = ["researcher-skills", "planner-skills", "reviewer-skills", "coder-skills", "debugger-skills"];
   const allSkills: Skill[] = [];
@@ -79,18 +90,24 @@ export function buildSpawnFn(deps: DagExecuteDeps): SpawnFn {
 
     // Per-node ReportState — isolated so one child's payload doesn't pollute another's.
     const childReportState: ReportState = { reported: new Set(), activeRole: new Map(), payloads: new Map() };
-    const childReportTool = makeReportTool({ state: childReportState, schema: DEFAULT_REPORT_SCHEMA, failedStep: roleName });
+    const childReportTool = makeReportTool({ state: childReportState, schema: role?.outputSchema ?? DEFAULT_REPORT_SCHEMA, failedStep: roleName });
+    // T1-4: resolve the role's model via ctx.modelRegistry (was hardcoded undefined).
+    const modelRef = role?.model;
+    const resolvedModel = modelRef && modelRegistry ? resolveModelRef(modelRef, modelRegistry) : undefined;
+    // T1-4: caller sessionFile so DAG nodes join the tree-abort tree (was undefined).
+    const callerSessionFile = getCallerSessionFile?.();
 
     const id = service.spawn({
       role: roleName,
       task,
-      parentSessionId: undefined, // DAG nodes may or may not have a parentSession; leave undefined
+      parentSessionId: callerSessionFile, // T1-4: was undefined — DAG nodes now join the abort tree
       tools: childTools,
       maxTurns: role?.maxTurns ?? 25,
-      model: undefined, // let child inherit session default; per-node model override can be added later
+      model: resolvedModel, // T1-4: was undefined — role.model now resolved + forwarded
       thinkingLevel: role?.thinkingLevel,
       resourceLoader,
       customTools: [childReportTool],
+      signal, // T1-4: forward the tool AbortSignal so a mid-DAG abort reaches in-flight children
       onSessionCreated: (sessionFile, rn) => {
         deps.reportState.activeRole.set(sessionFile, rn);
         console.error(`[pi-roles:dag] recorded activeRole[${sessionFile}]=${rn}`);
@@ -132,7 +149,14 @@ export function makeDagExecuteTool(deps: DagExecuteDeps) {
       if (!spec.nodes || Object.keys(spec.nodes).length === 0) {
         return { content: [{ type: "text" as const, text: JSON.stringify({ status: "failed", reason: "empty DAG" }) }], details: { status: "failed", reason: "empty DAG" } };
       }
-      const spawnFn = buildSpawnFn(deps);
+      // T1-4: thread ctx.modelRegistry + the tool AbortSignal + caller sessionFile
+      // into buildSpawnFn so each child gets signal/model/parentSessionId forwarded.
+      const ctx = _ctx as any;
+      const spawnFn = buildSpawnFn(deps, {
+        modelRegistry: ctx?.modelRegistry,
+        signal,
+        getCallerSessionFile: () => ctx?.sessionManager?.getSessionFile?.(),
+      });
       // Forward progress events through pi's streaming tool-update channel (Gap P3).
       const onProgress = onUpdate
         ? (p: { currentWave: number; totalWaves: number; nodes?: Record<string, { status: string }> }) => {
