@@ -27,6 +27,8 @@ export interface SubagentServiceParams {
   customTools?: unknown[];
   maxTurns?: number;
   livenessMs?: number;
+  /** P1-4: enable doom-loop detection (3 repeated identical assistant outputs). */
+  doomLoop?: boolean;
   /** Called with the child session file + role name once the session is created
    *  (before prompt runs), so the agent_end fallback can recognize the session
    *  as a role session. */
@@ -51,6 +53,10 @@ export class SubagentsService {
   private handles = new Map<string, RunHandle>();
   /** P0-2 tree abort: parentSessionId → set of child agent IDs. */
   private children = new Map<string, Set<string>>();
+  /** P1-3: max concurrent spawns (default 5). Gates runToCompletion entry. */
+  private maxConcurrentSpawns: number;
+  private runningSpawns = 0;
+  private spawnQueue: Array<() => void> = [];
   private archiveSession: (sessionFile: string) => void;
 
   constructor(deps: SpawnDeps, env: { cwd: string; agentDir: string; archiveSession?: (sessionFile: string) => void }) {
@@ -60,6 +66,7 @@ export class SubagentsService {
     // Default: rename child .jsonl to .archived.<ts> so it leaves pi's dir scan
     // (pi only scans *.jsonl) while preserving the transcript for audit.
     this.archiveSession = env.archiveSession ?? defaultArchiveSession;
+    this.maxConcurrentSpawns = 5;
   }
 
   /** Spawn a subagent run. Returns its id immediately; the run proceeds async. */
@@ -137,6 +144,12 @@ export class SubagentsService {
     params: SubagentServiceParams,
     signal: AbortSignal,
   ): Promise<void> {
+    // P1-3: concurrency limiter — gate entry to prevent resource exhaustion.
+    while (this.runningSpawns >= this.maxConcurrentSpawns) {
+      await new Promise<void>(r => this.spawnQueue.push(r));
+    }
+    this.runningSpawns++;
+    try {
     try { await hooks.emit("subagent_spawn:before", { id, role: params.role, task: params.task, parentSessionId: params.parentSessionId }); } catch {}
 
     const spawnResult = await spawnRole(this.deps, {
@@ -174,6 +187,7 @@ export class SubagentsService {
       maxTurns: params.maxTurns,
       signal,
       livenessMs: params.livenessMs,
+      doomLoop: params.doomLoop,
     });
 
     // Extract the report_role_result payload by scanning the child session's
@@ -220,6 +234,11 @@ export class SubagentsService {
     if (spawnResult.sessionFile) {
       try { this.archiveSession(spawnResult.sessionFile); }
       catch { /* best-effort: cleanup failure does not affect the resolved run */ }
+    }
+    } finally {
+      // P1-3: release concurrency slot, wake next queued spawn.
+      this.runningSpawns--;
+      this.spawnQueue.shift()?.();
     }
   }
 }

@@ -337,6 +337,17 @@ describe("spawn_role tool", () => {
     assert.equal(f.calls[0].maxDepth, 2, "explicit depth 3 → child gets 2");
   });
 
+  it("depth limit: childDepth<=0 strips spawn tools from child set (P1-2)", async () => {
+    const f = fakeService({ id: "r1", status: "completed", result: "ok", turnCount: 1 });
+    const { tool } = deps({ roles: [role("reviewer")], svc: f.svc });
+    await exec(tool, { role: "reviewer", task: "x", maxDepth: 1 });
+    const childTools = f.calls[0].tools;
+    assert.ok(!childTools.includes("spawn_role"), "spawn_role stripped at depth 0");
+    assert.ok(!childTools.includes("dag_execute"), "dag_execute stripped at depth 0");
+    assert.ok(childTools.includes("report_role_result"), "report_role_result still present");
+    assert.ok(childTools.includes("read"), "read still present");
+  });
+
   // Background + join
   it("background mode returns agentId immediately", async () => {
     const f = fakeService({ id: "r1", status: "completed", result: "ok", turnCount: 1 });

@@ -38,6 +38,8 @@ export interface RunOptions {
   signal?: AbortSignal;    // caller abort
   livenessMs?: number;    // 0 / undefined = no liveness timeout (generous default)
   pollMs?: number;         // liveness check interval (default livenessMs/2 or 500)
+  /** P1-4: enable doom-loop detection. Default false (opt-in). */
+  doomLoop?: boolean;
 }
 
 export type RunStatus = "completed" | "aborted" | "error";
@@ -60,7 +62,9 @@ export async function runSubagent(
 
   let turnCount = 0;
   let lastAssistantText: string | undefined;
-  let abortReason: "step-limit" | "liveness" | "caller-abort" | null = null;
+  // P1-4: doom-loop — track last 3 assistant texts for repetition.
+  const recentTexts: string[] = [];
+  let abortReason: "step-limit" | "liveness" | "caller-abort" | "doom-loop" | null = null;
   let lastActivity = Date.now();
 
   const unsub = session.subscribe((e) => {
@@ -70,6 +74,15 @@ export async function runSubagent(
         .map((c) => c.text!)
         .join("");
       if (text.length > 0) lastAssistantText = text;
+      // P1-4: doom-loop check — 3 consecutive identical outputs.
+      if (opts.doomLoop && text.length > 0) {
+        recentTexts.push(text);
+        if (recentTexts.length > 3) recentTexts.shift();
+        if (recentTexts.length === 3 && recentTexts[0] === recentTexts[1] && recentTexts[1] === recentTexts[2] && abortReason === null) {
+          abortReason = "doom-loop";
+          try { session.abort(); } catch {}
+        }
+      }
     }
     if (e.type === "turn_end") {
       turnCount++;

@@ -155,7 +155,13 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       // BUT report_role_result is the output-contract tool — every role MUST be
       // able to call it to report its structured result, so force-include it.
       // (Anti-cascade is about spawn_role/subagent, not the read-only report tool.)
-      const childTools = Array.from(new Set([...role.tools, "report_role_result"]));
+      // anti-cascade: when depth is exhausted, strip spawn tools from child set
+      // BEFORE the session starts — saves a turn vs call-time error (P1-2).
+      // Mirrors Claude Code's hard depth-5 where sub-agent loses Agent tool.
+      let childTools = Array.from(new Set([...role.tools, "report_role_result"]));
+      if (childDepth <= 0) {
+        childTools = childTools.filter(t => t !== "spawn_role" && t !== "dag_execute" && t !== "dag_resume");
+      }
 
       const callerSessionFile = (deps.getCallerSessionFile ?? (() => (ctx as any)?.sessionManager?.getSessionFile?.()))();
 
@@ -202,7 +208,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       // messages for the report_role_result toolCall (extractReportPayload), NOT via
       // this state — so an isolated per-child state avoids polluting the parent's.
       const childReportState: ReportState = { reported: new Set(), activeRole: new Map(), payloads: new Map() };
-      const childReportTool = makeReportTool({ state: childReportState, schema: DEFAULT_REPORT_SCHEMA, failedStep: role.name });
+      const childReportTool = makeReportTool({ state: childReportState, schema: role.outputSchema ?? DEFAULT_REPORT_SCHEMA, failedStep: role.name });
 
       const id = deps.service.spawn({
         role: role.name,
