@@ -13,6 +13,7 @@
 // degrades to name with allow ignored (forward-compat for per-key glob).
 
 import { defineTool, DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
+import { createDenyRulesExtension } from "./deny-rules";
 import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import * as path from "node:path";
@@ -202,6 +203,16 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         agentDir,
         noSkills: false,
         skillsOverride: makeRoleSkillsOverride({ domainSkills }),
+        // P1-1 + P2-1: inject deny-rules extension that intercepts tool_call
+        // events at runtime. extensionsOverride appends our extension to the
+        // loaded set; ExtensionRunner.emitToolCall iterates all extensions'
+        // handlers. A {block:true} return skips tool execution (agent-loop.js:386).
+        extensionsOverride: role.toolDenyRules && Object.keys(role.toolDenyRules).length > 0
+          ? (result: any) => {
+              result.extensions.push(createDenyRulesExtension(role.toolDenyRules!));
+              return result;
+            }
+          : undefined,
       } as any);
 
       // Phase 5 report_role_result fix: the skillsOverride resourceLoader does NOT

@@ -8,10 +8,13 @@ export type HookEvent =
   | "subagent_spawn:after"    // after spawnRole + bindExtensions, before prompt
   | "subagent_complete"       // runToCompletion finished successfully
   | "subagent_stop"           // run was aborted
-  | "subagent_error";         // run threw an error
+  | "subagent_error"          // run threw an error
+  // P2-1: tool-level lifecycle hooks (emitted by deny-rules extension)
+  | "tool_use:before"         // before a tool executes (toolName, input)
+  | "tool_use:after";         // after a tool executes (toolName, input, isError)
 
 export interface HookContext {
-  id: string;
+  id?: string;
   role?: string;
   task?: string;
   parentSessionId?: string;
@@ -19,6 +22,10 @@ export interface HookContext {
   error?: string;          // present on subagent_error
   sessionFile?: string;
   turnCount?: number;
+  // P2-1: tool-level hook fields (present on tool_use:before/after)
+  toolName?: string;
+  input?: Record<string, unknown>;
+  isError?: boolean;
 }
 
 export type HookHandler = (ctx: HookContext) => Promise<void>;
