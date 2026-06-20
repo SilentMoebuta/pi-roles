@@ -10,6 +10,16 @@ export interface DAGNode {
    *  out as parallel spawns within the wave. The static role/task are ignored
    *  when dynamic is set. */
   dynamic?: import("./send").DynamicNode;
+  /** SOTA gap #3: serializable Send[] — closure-free, JSON-safe alternative to
+   *  `dynamic`. When present (and `dynamic` is absent), the executor fans out
+   *  these sends directly (no closure invocation). Survives checkpoint
+   *  serialize/deserialize (unlike closures). Mirrors the SOTA pattern
+   *  (LangGraph `Send` value-objects, Codex CSV-driven fan-out). */
+  sends?: import("./send").Send[];
+  /** SOTA gap #1: per-node timeout in milliseconds. If the node's wait
+   *  takes longer than this, it is marked failed with errorType:"timeout"
+   *  (LangGraph/OpenCode/Claude/Codex all have equivalents). */
+  timeout_ms?: number;
 }
 
 export interface DAGSpec {

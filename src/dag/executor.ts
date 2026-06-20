@@ -10,6 +10,7 @@ import { planWaves } from "./planner";
 import { aggregateWaves, errorContextPrefix, upstreamResultsPrefix } from "./state";
 import { fanOutSends } from "./send";
 import type { DynamicNodeContext } from "./send";
+import { sendToTask, type Send } from "./send";
 
 export type SpawnOutcomeStatus = "completed" | "aborted" | "error" | "failed";
 
@@ -42,6 +43,11 @@ interface ExecuteOptions {
   /** Progress callback fired at wave start and per-node settle (Gap P3).
    *  Receives {dagId, currentWave, totalWaves, nodes: Record<nodeId,{status}>}. */
   onProgress?: (p: DAGProgress) => void;
+  /** SOTA gap #2: caller abort signal. Checked between waves, before spawn,
+   *  and raced against each h.wait(). When aborted, remaining waves are skipped
+   *  and in-flight waits return early (LangGraph/OpenCode/Claude all have
+   *  equivalents — we had _signal but discarded it). */
+  signal?: AbortSignal;
 }
 
 export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: ExecuteOptions = {}): Promise<DAGResult> {
@@ -64,8 +70,21 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
     pending.shift()?.();
   };
 
+  // Promise that rejects after ms (SOTA gap #1: per-node timeout).
+  const timeoutReject = (ms: number) =>
+    new Promise<never>((_, rej) => { setTimeout(() => rej(new Error(`timeout after ${ms}ms`)), ms); });
+  // Promise that rejects when the signal fires (SOTA gap #2: mid-DAG abort).
+  const abortWhenSignaled = (signal: AbortSignal) =>
+    new Promise<never>((_, rej) => {
+      if (signal.aborted) { rej(new Error("aborted")); return; }
+      const onAbort = () => { rej(new Error("aborted")); signal.removeEventListener("abort", onAbort); };
+      signal.addEventListener("abort", onAbort);
+    });
+
   for (let wi = startWaveIndex; wi < waves.length; wi++) {
     const wave = waves[wi];
+    // SOTA gap #2: between-wave abort — skip remaining waves if caller cancelled.
+    if (opts.signal?.aborted) break;
     // Emit progress: wave start — all nodes queued.
     opts.onProgress?.({
       dagId: "", currentWave: wi, totalWaves: waves.length,
@@ -76,6 +95,8 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
     const spawned = await Promise.allSettled(
       wave.nodes.map(async (n) => {
         await acquire();
+        // SOTA gap #2: abort check after semaphore acquire (yield point).
+        if (opts.signal?.aborted) { release(); throw new Error("aborted"); }
         try {
           let task = n.task;
           const failedDeps = n.deps.filter((d) => nodeResults.get(d)?.status === "failed");
@@ -93,7 +114,14 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
             task += upstreamResultsPrefix(completedDeps);
           }
           let handles: SpawnHandle[];
-          if (n.dynamic) {
+          if (n.sends && n.sends.length > 0) {
+            // SOTA gap #3: serializable Send[] — fan out directly (closure-free, JSON-safe).
+            handles = [];
+            for (const s of n.sends) {
+              const h = await spawnFn(s.role, sendToTask(s));
+              handles.push(h);
+            }
+          } else if (n.dynamic) {
           // Phase 5c: dynamic node — invoke to get Send[], fan out in parallel.
           const deps: DynamicNodeContext["dependencies"] = {};
           for (const d of n.deps ?? []) {
@@ -124,7 +152,7 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
     // Partition: rejected spawns → immediate failed NodeResult; fulfilled → wait.
     const successes: NodeResult[] = [];
     const failures: NodeResult[] = [];
-    const toWait: { nodeId: string; handles: SpawnHandle[] }[] = [];
+    const toWait: { nodeId: string; handles: SpawnHandle[]; timeoutMs?: number }[] = [];
     spawned.forEach((res, i) => {
       const nodeId = wave.nodes[i].id;
       if (res.status === "rejected") {
@@ -133,13 +161,24 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
         failures.push(nr);
         nodeResults.set(nodeId, nr);
       } else {
-        toWait.push({ nodeId, handles: res.value.handles });
+        toWait.push({ nodeId, handles: res.value.handles, timeoutMs: wave.nodes[i].timeout_ms });
       }
     });
 
-    // BARRIER: wait for all spawned nodes (allSettled — a failing wait does NOT abort siblings).
-    // A dynamic node's N handles are all awaited; their payloads are merged into one NodeResult.
-    const settled = await Promise.allSettled(toWait.flatMap(({ handles }) => handles.map((h) => h.wait())));
+    // BARRIER: wait for all spawned nodes — each wait raced against per-node
+    // timeout (SOTA gap #1) and global abort signal (SOTA gap #2).
+    const settled = await Promise.allSettled(toWait.flatMap(({ handles, timeoutMs }) =>
+      handles.map((h) => {
+        let waitP = h.wait();
+        if (timeoutMs !== undefined) {
+          waitP = Promise.race([waitP, timeoutReject(timeoutMs)]);
+        }
+        if (opts.signal) {
+          waitP = Promise.race([waitP, abortWhenSignaled(opts.signal)]);
+        }
+        return waitP;
+      })
+    ));
     // Map each settled result back to its nodeId (handles were flattened in toWait order).
     let flatIdx = 0;
     for (const { nodeId, handles } of toWait) {

@@ -120,7 +120,7 @@ export function makeDagExecuteTool(deps: DagExecuteDeps) {
     label: "Execute DAG",
     description: "Execute a DAG of subagent roles — topological waves, parallel spawn per wave, Promise.allSettled barrier, partial-failure isolation. Returns {status, waves, finalContext}.",
     parameters: Params,
-    async execute(_toolCallId: string, params: { spec: DAGSpec; maxConcurrent?: number }, _signal, onUpdate, _ctx) {
+    async execute(_toolCallId: string, params: { spec: DAGSpec; maxConcurrent?: number }, signal, onUpdate, _ctx) {
       const spec = params.spec as DAGSpec;
       if (!spec.nodes || Object.keys(spec.nodes).length === 0) {
         return { content: [{ type: "text" as const, text: JSON.stringify({ status: "failed", reason: "empty DAG" }) }], details: { status: "failed", reason: "empty DAG" } };
@@ -133,7 +133,7 @@ export function makeDagExecuteTool(deps: DagExecuteDeps) {
             onUpdate({ content: [{ type: "text" as const, text: `DAG wave ${p.currentWave + 1}/${p.totalWaves} (${nodeCount} nodes) running...` }], details: undefined });
           }
         : undefined;
-      const result = await executeDAGCore(spec, spawnFn, { maxConcurrent: params.maxConcurrent, onProgress });
+      const result = await executeDAGCore(spec, spawnFn, { maxConcurrent: params.maxConcurrent, onProgress, signal });
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: result };
     },
   });

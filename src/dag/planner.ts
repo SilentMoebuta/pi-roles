@@ -9,6 +9,10 @@ export interface PlannedNode {
   deps: string[];
   /** Phase 5c: carried from DAGNode.dynamic so the executor can fan out. */
   dynamic?: import("./send").DynamicNode;
+  /** SOTA gap #3: carried from DAGNode.sends (serializable fan-out). */
+  sends?: import("./send").Send[];
+  /** SOTA gap #1: carried from DAGNode.timeout_ms for per-node timeout. */
+  timeout_ms?: number;
 }
 
 export interface Wave {
@@ -43,7 +47,7 @@ export function planWaves(spec: DAGSpec): Wave[] {
       index: waveIndex++,
       nodes: ready.map((id) => {
         const n = spec.nodes[id];
-        return { id, role: n.role, task: n.task, deps: n.depends_on ?? [], dynamic: n.dynamic };
+        return { id, role: n.role, task: n.task, deps: n.depends_on ?? [], dynamic: n.dynamic, sends: n.sends, timeout_ms: n.timeout_ms };
       }),
     });
     for (const id of ready) {
