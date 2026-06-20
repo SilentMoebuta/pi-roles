@@ -7,6 +7,7 @@
 // spawn kicks off runSubagent async (fire-and-forget); the run settles the
 // registry's completion promise. abort(id) cancels via a per-run AbortController
 import * as fs from "node:fs";
+import { hooks } from "../hooks";
 // whose signal the runner observes (→ session.abort()). Status from runtime, not
 // model text.
 
@@ -136,6 +137,8 @@ export class SubagentsService {
     params: SubagentServiceParams,
     signal: AbortSignal,
   ): Promise<void> {
+    try { await hooks.emit("subagent_spawn:before", { id, role: params.role, task: params.task, parentSessionId: params.parentSessionId }); } catch {}
+
     const spawnResult = await spawnRole(this.deps, {
       cwd: this.cwd,
       agentDir: this.agentDir,
@@ -165,6 +168,8 @@ export class SubagentsService {
     // Optional-chain guards minimal test fakes that don't provide it.
     await session.bindExtensions?.({ mode: "print" });
 
+    try { await hooks.emit("subagent_spawn:after", { id, role: params.role, task: params.task, parentSessionId: params.parentSessionId, sessionFile: spawnResult.sessionFile }); } catch {}
+
     const outcome: RunOutcome = await runSubagent(session, params.task, {
       maxTurns: params.maxTurns,
       signal,
@@ -189,7 +194,7 @@ export class SubagentsService {
     }, outcome.reason, outcome.turnCount, spawnResult.sessionFile, reportPayload);
 
     // P0-1: notify caller when a background subagent completes.
-    params.onComplete?.({
+    try { params.onComplete?.({
       id,
       status: outcome.status,
       result: outcome.finalText,
@@ -197,7 +202,17 @@ export class SubagentsService {
       reportPayload: reportPayload ?? (outcome.finalText ? { findings: [outcome.finalText], artifacts: [] } : undefined),
       turnCount: outcome.turnCount,
       sessionFile: spawnResult.sessionFile,
-    });
+    }); } catch { /* best-effort */ }
+
+    // P0-3: lifecycle hook — complete / stop / error.
+    try {
+      const hookEvent = outcome.status === "completed" ? "subagent_complete"
+        : outcome.status === "aborted" ? "subagent_stop" : "subagent_error";
+      await hooks.emit(hookEvent, {
+        id, role: params.role, task: params.task, parentSessionId: params.parentSessionId,
+        status: outcome.status, error: outcome.reason, sessionFile: spawnResult.sessionFile, turnCount: outcome.turnCount,
+      });
+    } catch { /* best-effort */ }
 
     // B-cleanup: archive the child session file so it leaves pi's session-tree
     // dir scan (pi only scans *.jsonl). Transcript preserved for audit.
