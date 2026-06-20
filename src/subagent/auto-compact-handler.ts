@@ -43,7 +43,14 @@ export interface TurnEndEventLike {
  * and getContextUsage(); we read them at call time so the handler is bound to the
  * CHILD's ctx (the child loads its own pi-roles instance — decisive fact). */
 export interface AutoCompactCtxLike {
-  sessionManager?: { getSessionFile?: () => string | undefined };
+  sessionManager?: {
+    getSessionFile?: () => string | undefined;
+    /** Session header — present on child subagents (parentSession set by
+     *  spawnRole's newSession({parentSession})). Used to gate compaction to
+     *  role sessions WITHOUT depending on per-instance reportState.activeRole
+     *  (which is empty for the child's own pi-roles instance — see P1-5 fix). */
+    getHeader?: () => { parentSession?: string } | undefined;
+  };
   compact?: (opts: { customInstructions?: string; onComplete?: () => void; onError?: (e: Error) => void }) => void;
   getContextUsage?: () => { tokens?: number | null } | null | undefined;
 }
@@ -76,7 +83,16 @@ export function makeAutoCompactHandler(deps: AutoCompactDeps) {
     let isRoleSession = false;
     try {
       sessionFile = sm?.getSessionFile?.();
-      isRoleSession = !!deps.getRole(sessionFile);
+      // P1-5 fix: gate on the session header's parentSession (set by spawnRole
+      // for every child, readable from the child's OWN sessionManager) — NOT on
+      // reportState.activeRole, which is empty for the child's own pi-roles
+      // instance (the parent's onSessionCreated writes to the PARENT's
+      // reportState; the child's session_start handler only does setActiveTools).
+      // The old getRole gating made this handler a no-op for EVERY child — the
+      // researcher maxTurns:9999 overflow cliff was not prevented. Mirrors P0-4's
+      // enforcer gating. Role name stays best-effort via getRole for the prompt;
+      // when undefined (the child case) the GENERIC prompt is used.
+      isRoleSession = !!sm?.getHeader?.()?.parentSession;
     } catch {
       return; // malformed ctx — no-op
     }

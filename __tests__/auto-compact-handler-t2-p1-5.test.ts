@@ -19,7 +19,9 @@ function harness(roleMap: Map<string, string>, opts: { contextWindow?: number; t
   const fire = (sessionFile: string | undefined) => handler(
     { type: "turn_end" },
     {
-      sessionManager: { getSessionFile: () => sessionFile },
+      // P1-5 fix: gating is now header-based — a role session has parentSession
+      // set (spawnRole). Mirror that: sessions in the roleMap carry the header.
+      sessionManager: { getSessionFile: () => sessionFile, getHeader: () => (sessionFile != null && roleMap.has(sessionFile) ? { parentSession: "test-parent" } : undefined) },
       compact: (o) => {
         compactions.push({ instructions: o.customInstructions, onComplete: o.onComplete, onError: o.onError });
         if (autoComplete) o.onComplete?.();
@@ -78,7 +80,7 @@ describe("makeAutoCompactHandler — P1-5 proactive compaction", () => {
     const fire = () => handler(
       { type: "turn_end" },
       {
-        sessionManager: { getSessionFile: () => "/tmp/r.jsonl" },
+        sessionManager: { getSessionFile: () => "/tmp/r.jsonl", getHeader: () => ({ parentSession: "p" }) },
         compact: (o) => { compactions.push(o); onError = o.onError; },
         getContextUsage: () => ({ tokens: 80_000 }),
       },
