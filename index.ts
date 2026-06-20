@@ -10,6 +10,7 @@ import { SubagentsService } from "./src/subagent/service";
 import type { SpawnDeps } from "./src/subagent/spawn";
 import { makeSpawnRoleTool } from "./src/subagent/spawn-role-tool";
 import { makeRoleSessionStartHandler } from "./src/subagent/session-start-handler";
+import { makeAutoCompactHandler } from "./src/subagent/auto-compact-handler";
 import { makeDagExecuteTool } from "./src/dag/dag-execute-tool";
 import { makeDagResumeTool } from "./src/dag/dag-resume-tool";
 // agent-end-fallback module retained as a potential future same-process
@@ -107,6 +108,18 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   pi.on("session_start", makeRoleSessionStartHandler({
     getActiveTools: () => pi.getActiveTools(),
     setActiveTools: (names) => pi.setActiveTools(names),
+  }) as any);
+
+  // P1-5: proactive compaction for role subagents (the researcher maxTurns:9999
+  // cliff). A CHILD-side turn_end handler (the child loads its own pi-roles
+  // instance — decisive fact — so this fires FOR the child, not the main agent).
+  // Reads ctx.getContextUsage().tokens; at 70% of the context window calls
+  // ctx.compact({customInstructions}) with a role-specific prompt BEFORE the
+  // overflow cliff. Mirrors pi's own examples/extensions/trigger-compact.ts.
+  // Spike resolved: ctx.getContextUsage().tokens is available on turn_end
+  // (returns last assistant usage when available, then estimates — per docs).
+  pi.on("turn_end", makeAutoCompactHandler({
+    getRole: (sf) => reportState.activeRole.get(sf ?? ""),
   }) as any);
 
   // NOTE: agent_end fallback removed. The child subagent loads its OWN pi-roles
