@@ -29,8 +29,20 @@ export interface SubagentServiceParams {
   livenessMs?: number;
   /** P1-4: enable doom-loop detection (3 repeated identical assistant outputs). */
   doomLoop?: boolean;
-  /** P2-7: telemetry callback for timing/status per subagent. */
-  onTelemetry?: (event: { id: string; role?: string; event: string; durationMs?: number; turnCount?: number; status?: string }) => void;
+  /** P2-7: telemetry callback for timing/status per subagent. Tier-6: OTel gen-ai
+   *  semconv shape — attributes a downstream exporter can map to gen_ai.* spans
+   *  (gen_ai.system='pi-roles', gen_ai.operation.name per event, gen_ai.request.model,
+   *  gen_ai.response.finish_reason=status). */
+  onTelemetry?: (event: {
+    id: string;
+    role?: string;
+    event: string;
+    durationMs?: number;
+    turnCount?: number;
+    status?: string;
+    model?: string;
+    system?: string;
+  }) => void;
   /** Called with the child session file + role name once the session is created
    *  (before prompt runs), so the agent_end fallback can recognize the session
    *  as a role session. */
@@ -214,7 +226,7 @@ export class SubagentsService {
   ): Promise<void> {
     // P2-7: telemetry — start event.
     const t0 = Date.now();
-    params.onTelemetry?.({ id, role: params.role, event: "subagent_start" });
+    params.onTelemetry?.({ id, role: params.role, event: "subagent_start", system: "pi-roles", model: (params as any).model });
 
     // P1-3: concurrency limiter — gate entry to prevent resource exhaustion.
     while (this.runningSpawns >= this.maxConcurrentSpawns) {
@@ -317,7 +329,7 @@ export class SubagentsService {
 
     } finally {
       // P2-7: telemetry — end event.
-      params.onTelemetry?.({ id, role: params.role, event: "subagent_end", durationMs: Date.now() - t0, turnCount: outcome?.turnCount, status: outcome?.status });
+      params.onTelemetry?.({ id, role: params.role, event: "subagent_end", system: "pi-roles", durationMs: Date.now() - t0, turnCount: outcome?.turnCount, status: outcome?.status, model: (params as any).model });
       // P1-3: release concurrency slot, wake next queued spawn.
       this.runningSpawns--;
       this.spawnQueue.shift()?.();

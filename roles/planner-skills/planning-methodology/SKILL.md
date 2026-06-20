@@ -161,3 +161,7 @@ Every task in the plan should satisfy INVEST (Agile standard, still SOTA):
 - **I**ndependent, **N**egotiable, **V**aluable, **E**stimable, **S**mall (2-5 min for superpowers), **T**estable
 
 Reject tasks that fail INVEST — split or rephrase them.
+
+## ACP PlanEntry — Future-Proof Plan Shape (aspirational)
+
+When emitting structured plan output (e.g. for a downstream tool or external client), align to the Agent Client Protocol (ACP) `PlanEntry` shape `{content, priority, status}` (Zed's 2025 inter-agent standard, @agentclientprotocol/sdk; OpenCode implements it). This makes plan entries machine-readable + portable to ACP-compatible clients. Not required for markdown plans today — adopt when emitting structured plan output.
