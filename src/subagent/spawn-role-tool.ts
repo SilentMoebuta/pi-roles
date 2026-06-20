@@ -21,7 +21,6 @@ import { fileURLToPath } from "node:url";
 import type { RoleDef } from "../roles";
 import type { ReportState } from "../report-tool";
 import { makeRoleSkillsOverride } from "./skills-override";
-import { AgentHandle } from "./handle";
 
 // Resolves a role frontmatter model reference (bare id 'deepseek-v4-flash' or
 // 'provider/modelId') to a Model object using the tool execution context's
@@ -51,7 +50,9 @@ export interface SpawnToolService {
     signal?: AbortSignal;
   }): string;
   waitForResult(id: string): Promise<SpawnToolRecord>;
+  getRecord(id: string): SpawnToolRecord | undefined;
   getAbortController(id: string): { abort: () => void } | undefined;
+  abort(id: string): boolean;
 }
 
 export interface SpawnToolRecord {
@@ -205,20 +206,14 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         signal,
       });
 
-      // Build the handle for background mode (or deferred wait).
-      const waiter = deps.service.waitForResult(id);
-      const ac = deps.service.getAbortController(id);
-      const handle = new AgentHandle(id, role.name, childDepth, waiter,
-        () => ({ id, status: "queued", turnCount: 0 } as SpawnToolRecord),
-        () => ac?.abort());
-
-      // Background mode: return immediately (no handle in JSON — avoids serialization loop).
+      // ponytail: background mode returns agentId only — no AgentHandle is
+      // constructed, so nothing clone-unsafe enters the tool result or messages.
       if (mode === "background") {
         return okResult({ status: "running", agentId: id });
       }
 
-      // Foreground mode: await completion.
-      const rec = await waiter;
+      // Foreground mode: await completion directly (no handle needed).
+      const rec = await deps.service.waitForResult(id);
       const payload = rec.reportPayload
         ?? (rec.sessionFile ? deps.reportState.payloads.get(rec.sessionFile) : undefined);
       const result = payload ?? (rec.result ? { findings: [rec.result], artifacts: [] } : { findings: [], artifacts: [] });
