@@ -56,13 +56,14 @@ async function exec(tool: any, params: any, ctx: any = {}, signal?: AbortSignal)
 }
 
 describe("spawn_role tool", () => {
-  it("params schema: {role, task, mode?, model?, maxTurns?, thinkingLevel?, maxDepth?}", () => {
+  it("params schema: {role?, task?, mode?, model?, maxTurns?, thinkingLevel?, maxDepth?, agentId?}", () => {
     const { tool } = deps({ roles: [role("reviewer")] });
     assert.equal(tool.name, "spawn_role");
     const keys = Object.keys(tool.parameters.properties);
     assert.deepEqual(keys.sort(), ["agentId", "maxDepth", "maxTurns", "mode", "model", "role", "task", "thinkingLevel"]);
     // required fields are at the object level (TypeBox), not on each property
-    assert.deepEqual(tool.parameters.required.sort(), ["role", "task"]);
+    // All fields are optional (join mode needs only agentId, spawn needs role+task)
+    assert.ok(!tool.parameters.required || tool.parameters.required.length === 0, "all fields optional");
   });
 
   it("foreground (default mode): spawns, awaits, returns {status:completed, result, agentId}", async () => {

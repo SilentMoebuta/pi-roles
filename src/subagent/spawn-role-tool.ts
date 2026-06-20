@@ -77,8 +77,8 @@ export interface SpawnToolDeps {
 }
 
 const Params = Type.Object({
-  role: Type.String({ description: "Name of the role to spawn (from role catalog)." }),
-  task: Type.String({ description: "The task for the role to perform." }),
+  role: Type.Optional(Type.String({ description: "Name of the role to spawn (from role catalog). Required for spawn. Omit for join (agentId only)." })),
+  task: Type.Optional(Type.String({ description: "The task for the role to perform. Required for spawn. Omit for join (agentId only)." })),
   mode: Type.Optional(Type.Union([
     Type.Literal("foreground"),
     Type.Literal("background"),
@@ -108,6 +108,11 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         if (rec.status === "completed") return okResult({ status: "completed", result: payload, agentId: params.agentId });
         if (rec.status === "aborted") return okResult({ status: "aborted", error: rec.reason ?? "aborted", agentId: params.agentId });
         return okResult({ status: "error", error: rec.error ?? rec.reason ?? "unknown error", agentId: params.agentId });
+      }
+
+      // Spawn mode: require role and task.
+      if (!params.role || !params.task) {
+        return okResult({ status: "error", error: "Either (role + task) for spawn or agentId for join is required." });
       }
 
       const mode = params.mode ?? "foreground";
