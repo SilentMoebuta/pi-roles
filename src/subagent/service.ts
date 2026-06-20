@@ -234,6 +234,15 @@ export class SubagentsService {
     // passed to report_role_result live in the assistant message's toolCall content.
     const reportPayload = extractReportPayload((session as any).messages);
 
+    // B-cleanup: archive the child session file BEFORE resolving the registry,
+    // so callers awaiting waitForResult see an already-archived session (no race
+    // where the child .jsonl lingers in pi's session-tree scan after the result is
+    // handed back). Best-effort: errors swallowed.
+    if (spawnResult.sessionFile) {
+      try { this.archiveSession(spawnResult.sessionFile); }
+      catch { /* best-effort: cleanup failure does not affect the resolved run */ }
+    }
+
     this.registry.resolve(id, (s) => {
       if (outcome!.status === "completed") {
         s.markCompleted(outcome!.finalText ?? "", Date.now());
@@ -265,13 +274,6 @@ export class SubagentsService {
       });
     } catch { /* best-effort */ }
 
-    // B-cleanup: archive the child session file so it leaves pi's session-tree
-    // dir scan (pi only scans *.jsonl). Transcript preserved for audit.
-    // Best-effort: errors swallowed (run already resolved successfully).
-    if (spawnResult.sessionFile) {
-      try { this.archiveSession(spawnResult.sessionFile); }
-      catch { /* best-effort: cleanup failure does not affect the resolved run */ }
-    }
     } finally {
       // P2-7: telemetry — end event.
       params.onTelemetry?.({ id, role: params.role, event: "subagent_end", durationMs: Date.now() - t0, turnCount: outcome?.turnCount, status: outcome?.status });
