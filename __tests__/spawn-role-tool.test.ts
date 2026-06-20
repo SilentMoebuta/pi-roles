@@ -168,7 +168,7 @@ describe("spawn_role tool", () => {
     const { tool } = deps({ roles: [role("reviewer")], svc: f.svc });
     const out = await exec(tool, { role: "reviewer", task: "x", mode: "background" });
     assert.equal(out.details.status, "running");
-    assert.ok(out.details.handle, "handle returned in background mode");
+    assert.ok(out.details.agentId, "agentId returned in background mode");
     assert.equal(out.details.agentId, "r1");
     assert.ok(f.calls.length > 0, "spawn was called");
   });

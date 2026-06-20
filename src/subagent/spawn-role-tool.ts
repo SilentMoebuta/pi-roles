@@ -197,9 +197,9 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         () => ({ id, status: "queued", turnCount: 0 } as SpawnToolRecord),
         () => ac?.abort());
 
-      // Background mode: return immediately with handle.
+      // Background mode: return immediately (no handle in JSON — avoids serialization loop).
       if (mode === "background") {
-        return okResult({ status: "running", agentId: id, handle });
+        return okResult({ status: "running", agentId: id });
       }
 
       // Foreground mode: await completion.
