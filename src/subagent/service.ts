@@ -129,6 +129,14 @@ export class SubagentsService {
     const state = this.registry.stateOf(id);
     state?.markRunning(Date.now());
 
+    // Fire session_start so the pi-roles session_start handler runs and
+    // additively adds report_role_result to the child's active tools. pi core's
+    // createAgentSession does NOT call bindExtensions (only the interactive/print
+    // modes do), so without this the handler never fires and the child cannot
+    // call the output-contract tool. mode:'print' = non-interactive child.
+    // Optional-chain guards minimal test fakes that don't provide it.
+    await session.bindExtensions?.({ mode: "print" });
+
     const outcome: RunOutcome = await runSubagent(session, params.task, {
       maxTurns: params.maxTurns,
       signal,

@@ -18,6 +18,14 @@ export interface SubagentSession {
   subscribe(listener: (event: SubagentEvent) => void): () => void;
   abort(): void;
   setActiveToolsByName(names: string[]): void;
+  // bindExtensions fires the session_start event (the only emit point — see pi
+  // core agent-session.js bindExtensions). Without it, the pi-roles
+  // session_start handler that additively adds report_role_result to a role
+  // session's active tools NEVER runs, so children can't call the output-
+  // contract tool. Called once after createSession, before prompt.
+  // Optional on the interface so minimal test fakes don't have to stub it;
+  // the real pi AgentSession always provides it.
+  bindExtensions?(bindings?: { mode?: string; [k: string]: unknown }): Promise<void>;
 }
 
 export type SubagentEvent =
