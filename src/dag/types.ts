@@ -31,6 +31,7 @@ export interface DAGSpec {
 export interface NodePayload {
   findings: string[];
   artifacts: string[];
+  [k: string]: unknown; // T1-3: allow custom-schema fields to flow through DAG nodes
 }
 
 export interface NodeResult {

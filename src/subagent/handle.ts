@@ -15,12 +15,13 @@
 // the service directly via an injected spawnFn (see src/dag/executor.ts).
 
 import type { SpawnToolService, SpawnToolRecord } from "./spawn-role-tool";
+import type { NodePayload } from "../dag/types";
 
 export type AgentStatus = "queued" | "running" | "completed" | "aborted" | "error";
 
 export interface AgentResult {
   status: "completed" | "aborted" | "error";
-  result?: { findings: string[]; artifacts: string[] };
+  result?: NodePayload;
   error?: string;
   turnCount?: number;
 }
@@ -53,9 +54,14 @@ export class AgentHandle {
   /** Block until the agent completes, then return structured result. */
   async wait(svc: SpawnToolService): Promise<AgentResult> {
     const rec: SpawnToolRecord = await svc.waitForResult(this.id);
+    // T1-3: reportPayload may be a custom-schema shape; adapt to NodePayload.
+    const rp = rec.reportPayload;
+    const result: NodePayload = rp && Array.isArray((rp as any).findings) && Array.isArray((rp as any).artifacts)
+      ? { findings: (rp as any).findings, artifacts: (rp as any).artifacts, ...rp }
+      : (rec.result ? { findings: [rec.result], artifacts: [] } : { findings: [], artifacts: [] });
     return {
       status: rec.status as AgentResult["status"],
-      result: rec.reportPayload ?? (rec.result ? { findings: [rec.result], artifacts: [] } : { findings: [], artifacts: [] }),
+      result,
       error: rec.error ?? rec.reason,
       turnCount: rec.turnCount,
     };

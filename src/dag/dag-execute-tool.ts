@@ -15,7 +15,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
 import { executeDAGCore, type SpawnFn } from "./executor";
-import type { DAGSpec } from "./types";
+import type { DAGSpec, NodePayload } from "./types";
 import type { RoleDef } from "../roles";
 import type { ReportState } from "../report-tool";
 import { makeReportTool } from "../report-tool";
@@ -103,9 +103,16 @@ export function buildSpawnFn(deps: DagExecuteDeps): SpawnFn {
         const rec = await service.waitForResult(id);
         const payload = rec.reportPayload
           ?? (rec.sessionFile ? deps.reportState.payloads.get(rec.sessionFile) : undefined);
+        // T1-3: payload may be a custom-schema shape (not findings/artifacts).
+        // DAG NodeResult.result is NodePayload ({findings, artifacts}) — adapt:
+        // if the payload has findings/artifacts arrays use them, else wrap as a
+        // single finding so custom-schema role output still flows downstream.
+        const np: NodePayload = payload && Array.isArray((payload as any).findings) && Array.isArray((payload as any).artifacts)
+          ? { findings: (payload as any).findings, artifacts: (payload as any).artifacts, ...payload }
+          : { findings: payload ? [JSON.stringify(payload)] : (rec.result ? [rec.result] : []), artifacts: [] };
         return {
           status: rec.status as "completed" | "aborted" | "error" | "failed",
-          result: payload ?? (rec.result ? { findings: [rec.result], artifacts: [] } : { findings: [], artifacts: [] }),
+          result: np,
           error: rec.error ?? rec.reason,
           reportPayload: payload,
         };

@@ -38,7 +38,7 @@ export interface SubagentServiceParams {
   /** P0-1: called when the background subagent completes, with the resolved
    *  record (status, result, reportPayload, turnCount). Fires asynchronously
    *  after the run settles — the spawn call has already returned. */
-  onComplete?: (rec: { id: string; status: string; result?: string; error?: string; reportPayload?: { findings: string[]; artifacts: string[] }; turnCount: number; sessionFile?: string }) => void;
+  onComplete?: (rec: { id: string; status: string; result?: string; error?: string; reportPayload?: Record<string, unknown>; turnCount: number; sessionFile?: string }) => void;
   /** Caller abort signal (e.g. parent turn ESC). */
   signal?: AbortSignal;
 }
@@ -311,17 +311,18 @@ function defaultArchiveSession(sessionFile: string): void {
 }
 
 // Scan child session messages for the report_role_result tool call and extract
-// its {findings, artifacts} arguments. Returns undefined if the role never called it.
-function extractReportPayload(messages: any[] | undefined): { findings: string[]; artifacts: string[] } | undefined {
+// its arguments. T1-3: returns the FULL args object (was hardcoded to require
+// array-typed findings/artifacts, which discarded custom-schema payloads). A
+// default-schema role still gets {findings, artifacts}; a custom-schema role
+// gets its full shape. Returns undefined if the role never called the tool.
+export function extractReportPayload(messages: any[] | undefined): Record<string, unknown> | undefined {
   if (!messages) return undefined;
   for (const m of messages) {
     if (m?.role !== "assistant") continue;
     const calls = (m.content ?? []).filter((c: any) => c?.type === "toolCall" && c?.name === "report_role_result");
     for (const c of calls) {
       const args = c.arguments;
-      if (args && Array.isArray(args.findings) && Array.isArray(args.artifacts)) {
-        return { findings: args.findings, artifacts: args.artifacts };
-      }
+      if (args && typeof args === "object") return { ...args };
     }
   }
   return undefined;

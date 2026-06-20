@@ -5,7 +5,7 @@
 // own, not its wave's). Downstream nodes whose predecessor failed receive an
 // error-context prefix on their task (5d). Uses an injected spawnFn so it
 // never touches AgentHandle and stays structuredClone-safe.
-import type { DAGSpec, WaveResult, NodeResult, DAGResult, DAGProgress } from "./types";
+import type { DAGSpec, WaveResult, NodeResult, NodePayload, DAGResult, DAGProgress } from "./types";
 import { planWaves } from "./planner";
 import { aggregateWaves, errorContextPrefix, upstreamResultsPrefix } from "./state";
 import { fanOutSends } from "./send";
@@ -20,9 +20,9 @@ export interface SpawnHandle {
   agentId: string;
   wait: () => Promise<{
     status: SpawnOutcomeStatus;
-    result?: { findings: string[]; artifacts: string[] };
+    result?: NodePayload;
     error?: string;
-    reportPayload?: { findings: string[]; artifacts: string[] };
+    reportPayload?: Record<string, unknown>;
   }>;
 }
 
@@ -112,7 +112,7 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
           }
           // Gap D: inject upstream completed results as a JSON block so the
           // downstream node (reviewer) knows the ACTUAL artifacts produced.
-          const completedDeps: Record<string, { findings: string[]; artifacts: string[] }> = {};
+          const completedDeps: Record<string, NodePayload> = {};
           for (const d of n.deps ?? []) {
             const nr = nodeResults.get(d);
             if (nr?.status === "completed" && nr.result) completedDeps[d] = nr.result;
@@ -189,13 +189,18 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
     // Map each settled result back to its nodeId (handles were flattened in toWait order).
     let flatIdx = 0;
     for (const { nodeId, handles } of toWait) {
-      const subResults: { findings: string[]; artifacts: string[] }[] = [];
+      const subResults: NodePayload[] = [];
       let subError: string | undefined;
       let allCompleted = true;
       for (let j = 0; j < handles.length; j++) {
         const res = settled[flatIdx++];
         if (res.status === "fulfilled" && res.value.status === "completed") {
-          subResults.push(res.value.reportPayload ?? res.value.result ?? { findings: [], artifacts: [] });
+          // T1-3: reportPayload may be a custom-schema shape; adapt to NodePayload.
+          const rp = res.value.reportPayload ?? res.value.result;
+          const np: NodePayload = rp && Array.isArray((rp as any).findings) && Array.isArray((rp as any).artifacts)
+            ? { findings: (rp as any).findings, artifacts: (rp as any).artifacts, ...rp }
+            : { findings: rp ? [JSON.stringify(rp)] : [], artifacts: [] };
+          subResults.push(np);
         } else {
           allCompleted = false;
           subError = res.status === "fulfilled" ? (res.value.error ?? res.value.status) : (res.reason instanceof Error ? res.reason.message : String(res.reason));

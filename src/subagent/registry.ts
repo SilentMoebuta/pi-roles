@@ -16,7 +16,7 @@ export interface SubagentRecord {
   error?: string;
   reason?: string;  // abort cause: "step-limit" | "liveness" | "caller-abort" (runtime-derived, not model text)
   sessionFile?: string;  // child session file
-  reportPayload?: { findings: string[]; artifacts: string[] };  // extracted from child session's report_role_result tool call
+  reportPayload?: Record<string, unknown>;  // extracted from child session's report_role_result tool call
   startedAt?: number;
   completedAt?: number;
   turnCount: number;
@@ -32,7 +32,7 @@ interface Entry {
   reason?: string;
   turnCount?: number;
   sessionFile?: string;
-  reportPayload?: { findings: string[]; artifacts: string[] };
+  reportPayload?: Record<string, unknown>;
 }
 
 export class SubagentRegistry {
@@ -79,7 +79,7 @@ export class SubagentRegistry {
   }
 
   /** Settle the run with a terminal state transition. Throws if already settled or unknown. */
-  resolve(id: string, transition: (s: SubagentState) => void, reason?: string, turnCount?: number, sessionFile?: string, reportPayload?: { findings: string[]; artifacts: string[] }): void {
+  resolve(id: string, transition: (s: SubagentState) => void, reason?: string, turnCount?: number, sessionFile?: string, reportPayload?: Record<string, unknown>): void {
     const e = this.entries.get(id);
     if (!e) throw new Error(`unknown subagent id: ${id}`);
     if (e.settled) throw new Error(`subagent ${id} already settled`);

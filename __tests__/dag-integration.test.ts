@@ -51,7 +51,7 @@ function makeDeps(turns: number, assistantText = "done"): SpawnDeps {
 // Map a SubagentRecord (from service.waitForResult) to the executor's SpawnHandle
 // wait-result shape: terminal status → SpawnOutcomeStatus; assistant text →
 // findings (no report_role_result payload in the fake-session path).
-function recToWaitResult(rec: { status: string; result?: string; error?: string; reportPayload?: { findings: string[]; artifacts: string[] } }) {
+function recToWaitResult(rec: { status: string; result?: string; error?: string; reportPayload?: Record<string, unknown> }) {
   const status: SpawnOutcomeStatus = rec.status === "completed" ? "completed" : rec.status === "aborted" ? "aborted" : "error";
   return {
     status,

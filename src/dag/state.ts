@@ -29,6 +29,6 @@ export function errorContextPrefix(failedNode: string, errorMessage: string): st
 // planned task string). The downstream node (e.g. reviewer) can parse this
 // JSON block to discover the real artifacts produced by upstream coders,
 // rather than relying on the planner's guesses.
-export function upstreamResultsPrefix(completed: Record<string, { findings: string[]; artifacts: string[] }>): string {
+export function upstreamResultsPrefix(completed: Record<string, NodePayload>): string {
   return `\n[Upstream results: ${JSON.stringify(completed)}]`;
 }

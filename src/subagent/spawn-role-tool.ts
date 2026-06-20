@@ -51,7 +51,7 @@ export interface SpawnToolService {
     resourceLoader?: unknown;
     customTools?: unknown[];
     onSessionCreated?: (sessionFile: string, role: string) => void;
-    onComplete?: (rec: { id: string; status: string; result?: string; error?: string; reportPayload?: { findings: string[]; artifacts: string[] }; turnCount: number; sessionFile?: string }) => void;
+    onComplete?: (rec: { id: string; status: string; result?: string; error?: string; reportPayload?: Record<string, unknown>; turnCount: number; sessionFile?: string }) => void;
     signal?: AbortSignal;
   }): string;
   waitForResult(id: string): Promise<SpawnToolRecord>;
@@ -68,7 +68,7 @@ export interface SpawnToolRecord {
   reason?: string;
   turnCount?: number;
   sessionFile?: string;
-  reportPayload?: { findings: string[]; artifacts: string[] };
+  reportPayload?: Record<string, unknown>;
 }
 
 export interface SpawnToolDeps {
@@ -246,7 +246,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         signal,
         // P0-1: for background mode, notify parent when child completes.
         onComplete: mode === "background" && deps.notifyParent
-          ? (rec: { id: string; status: string; result?: string; reportPayload?: { findings: string[]; artifacts: string[] }; sessionFile?: string }) => {
+          ? (rec: { id: string; status: string; result?: string; reportPayload?: Record<string, unknown>; sessionFile?: string }) => {
               const payload = rec.reportPayload
                 ?? (rec.result ? { findings: [rec.result], artifacts: [] } : { findings: [], artifacts: [] });
               deps.notifyParent!(

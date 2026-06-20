@@ -3,6 +3,7 @@
 // out as N parallel spawns within the same super-step (wave). This enables
 // LLM-determined parallelism (e.g. a planner that decides 3 coders are needed).
 // Mirrors docs/superpowers/specs/2026-06-20-pi-roles-phase5-complete-design.md §5c.
+import type { NodePayload } from "./types";
 
 // SpawnHandle imported lazily via `import("./executor").SpawnHandle` in the
 // signature to avoid a hard type re-export; send.ts is a leaf fan-out helper.
@@ -24,7 +25,7 @@ export interface DynamicNodeContext {
    *  per-dep status to decide fan-out (Phase 5c Gap C fix). */
   dependencies: Record<string, {
     status: "completed" | "failed";
-    result?: { findings: string[]; artifacts: string[] };
+    result?: NodePayload;
     error?: string;
   }>;
 }
