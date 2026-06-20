@@ -29,16 +29,20 @@ export interface SubagentSession {
 }
 
 export type SubagentEvent =
-  | { type: "message_end"; message: { role: string; content: Array<{ type: string; text?: string }> } }
+  | { type: "message_end"; message: { role: string; content: Array<{ type: string; text?: string; name?: string; arguments?: unknown }> } }
   | { type: "turn_end" }
   | { type: "agent_end" };
 
 export interface RunOptions {
   maxTurns?: number;       // undefined or 0 = unlimited
   signal?: AbortSignal;    // caller abort
-  livenessMs?: number;    // 0 / undefined = no liveness timeout (generous default)
+  /** Liveness safety net (generous, per Hermes lesson). DEFAULTS ON at 300_000ms
+   *  (5 min) — a hung provider (no turn_end) must not hold a concurrency slot
+   *  forever (5 hung bg = deadlock). Pass 0 to explicitly disable. T1-2. */
+  livenessMs?: number;
   pollMs?: number;         // liveness check interval (default livenessMs/2 or 500)
-  /** P1-4: enable doom-loop detection. Default false (opt-in). */
+  /** P1-4 doom-loop detection. DEFAULTS ON. Aborts after 3 consecutive identical
+   *  tool-name+input-hash calls (SOTA: OpenCode tracks tool+input, not text). T1-2. */
   doomLoop?: boolean;
 }
 
@@ -57,12 +61,20 @@ export async function runSubagent(
   opts: RunOptions = {},
 ): Promise<RunOutcome> {
   const maxTurns = opts.maxTurns && opts.maxTurns > 0 ? opts.maxTurns : undefined;
-  const livenessMs = opts.livenessMs && opts.livenessMs > 0 ? opts.livenessMs : 0;
+  // T1-2: liveness defaults ON (300_000ms) unless explicitly set to 0.
+  // `=== undefined` (not `> 0`) so an explicit 0 still disables (opt-out).
+  const livenessMs = opts.livenessMs === undefined ? 300_000 : opts.livenessMs;
   const pollMs = opts.pollMs ?? (livenessMs > 0 ? Math.max(10, Math.floor(livenessMs / 2)) : 0);
+  // T1-2: doomLoop defaults ON.
+  const doomLoop = opts.doomLoop ?? true;
 
   let turnCount = 0;
   let lastAssistantText: string | undefined;
-  // P1-4: doom-loop — track last 3 assistant texts for repetition.
+  // P1-4 doom-loop: track last 3 tool-name+input-hash signatures (SOTA: OpenCode
+  // tracks tool+input, not assistant text — a role stuck calling the same
+  // failing tool with varied/no text is NOT caught by a text signal). Also keep
+  // the assistant-text signal as a secondary (harmless; catches pure text loops).
+  const recentToolSigs: string[] = [];
   const recentTexts: string[] = [];
   let abortReason: "step-limit" | "liveness" | "caller-abort" | "doom-loop" | null = null;
   let lastActivity = Date.now();
@@ -70,17 +82,32 @@ export async function runSubagent(
   const unsub = session.subscribe((e) => {
     if (e.type === "message_end" && e.message.role === "assistant") {
       const text = e.message.content
-        .filter((c) => c.type === "text" && typeof c.text === "string")
-        .map((c) => c.text!)
+        .filter((c) => c.type === "text" && typeof (c as any).text === "string")
+        .map((c) => (c as any).text as string)
         .join("");
       if (text.length > 0) lastAssistantText = text;
-      // P1-4: doom-loop check — 3 consecutive identical outputs.
-      if (opts.doomLoop && text.length > 0) {
-        recentTexts.push(text);
-        if (recentTexts.length > 3) recentTexts.shift();
-        if (recentTexts.length === 3 && recentTexts[0] === recentTexts[1] && recentTexts[1] === recentTexts[2] && abortReason === null) {
+      // T1-2: doom-loop on tool-name+input-hash (primary SOTA signal).
+      if (doomLoop) {
+        const toolCalls = e.message.content.filter((c) => c.type === "toolCall");
+        for (const tc of toolCalls) {
+          const name = (tc as any).name ?? "";
+          const args = (tc as any).arguments;
+          const sig = name + "|" + JSON.stringify(args ?? {});
+          recentToolSigs.push(sig);
+          if (recentToolSigs.length > 3) recentToolSigs.shift();
+        }
+        if (recentToolSigs.length === 3 && recentToolSigs[0] === recentToolSigs[1] && recentToolSigs[1] === recentToolSigs[2] && abortReason === null) {
           abortReason = "doom-loop";
           try { session.abort(); } catch {}
+        }
+        // Secondary: assistant-text repetition (catches pure text loops; harmless).
+        if (text.length > 0) {
+          recentTexts.push(text);
+          if (recentTexts.length > 3) recentTexts.shift();
+          if (recentTexts.length === 3 && recentTexts[0] === recentTexts[1] && recentTexts[1] === recentTexts[2] && abortReason === null) {
+            abortReason = "doom-loop";
+            try { session.abort(); } catch {}
+          }
         }
       }
     }
