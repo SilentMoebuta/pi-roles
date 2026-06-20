@@ -141,11 +141,16 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       const cwd = (ctx as any)?.cwd ?? process.cwd();
       const agentDir = (ctx as any)?.agentDir ?? path.join(os.homedir(), ".pi", "agent");
 
-      // Load the role's domain skills from the researcher-skills/ directory.
+      // Load the role's domain skills from role-specific skill directories.
       // Uses pi's public loadSkillsFromDir (ESM: __dirname is undefined; use import.meta.url).
       const _thisDir = path.dirname(fileURLToPath(import.meta.url));
-      const skillsDir = path.resolve(_thisDir, "..", "..", "roles", "researcher-skills");
-      const { skills: allSkills } = loadSkillsFromDir({ dir: skillsDir, source: "pi-roles-roles" });
+      const roleSkillsDirs = ["researcher-skills", "planner-skills"];
+      const allSkills: Skill[] = [];
+      for (const d of roleSkillsDirs) {
+        const dir = path.resolve(_thisDir, "..", "..", "roles", d);
+        const { skills } = loadSkillsFromDir({ dir, source: "pi-roles-roles" });
+        allSkills.push(...skills);
+      }
       const domainSkills: Skill[] = allSkills.filter((s) => role.skills.includes(s.name));
 
       const resourceLoader = new DefaultResourceLoader({
