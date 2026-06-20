@@ -11,6 +11,7 @@ import type { SpawnDeps } from "./src/subagent/spawn";
 import { makeSpawnRoleTool } from "./src/subagent/spawn-role-tool";
 import { makeRoleSessionStartHandler } from "./src/subagent/session-start-handler";
 import { makeAutoCompactHandler } from "./src/subagent/auto-compact-handler";
+import { makeOutputContractEnforcer } from "./src/subagent/output-contract-enforcer";
 import { makeDagExecuteTool } from "./src/dag/dag-execute-tool";
 import { makeDagResumeTool } from "./src/dag/dag-resume-tool";
 // agent-end-fallback module retained as a potential future same-process
@@ -120,6 +121,19 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // (returns last assistant usage when available, then estimates — per docs).
   pi.on("turn_end", makeAutoCompactHandler({
     getRole: (sf) => reportState.activeRole.get(sf ?? ""),
+  }) as any);
+
+  // P0-4: proactive output-contract enforcement (hybrid). A CHILD-side agent_end
+  // handler (the child loads its own pi-roles instance — decisive fact — so this
+  // fires FOR the child). Scans event.messages for a report_role_result toolCall;
+  // if absent & retries<2, sends a reminder via sendUserMessage(deliverAs:'steer',
+  // triggerTurn:true) so the child gets another turn. extractReportPayload stays
+  // as the reactive fallback (scans on settle). Bounded by maxRetries=2.
+  pi.on("agent_end", makeOutputContractEnforcer({
+    sendReminder: (text) => {
+      try { pi.sendUserMessage(text, { deliverAs: "steer", triggerTurn: true } as any); }
+      catch (e) { console.error("[pi-roles:output-contract] reminder failed", e); }
+    },
   }) as any);
 
   // NOTE: agent_end fallback removed. The child subagent loads its OWN pi-roles
