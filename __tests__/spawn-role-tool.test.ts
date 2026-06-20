@@ -21,6 +21,7 @@ function fakeService(rec: Partial<FakeRec> = { id: "r1", status: "completed", re
       waitForResult: async (id: string) => ({ id, status: rec.status, result: rec.result, error: rec.error, reason: rec.reason, turnCount: rec.turnCount } as any),
       getRecord: (id: string) => ({ id, status: rec.status } as any),
       abort: () => true,
+      getAbortController: () => ({ abort: () => {} }),
     },
   };
 }
@@ -55,11 +56,11 @@ async function exec(tool: any, params: any, ctx: any = {}, signal?: AbortSignal)
 }
 
 describe("spawn_role tool", () => {
-  it("params schema: {role, task, mode?, model?, maxTurns?, thinkingLevel?}", () => {
+  it("params schema: {role, task, mode?, model?, maxTurns?, thinkingLevel?, maxDepth?}", () => {
     const { tool } = deps({ roles: [role("reviewer")] });
     assert.equal(tool.name, "spawn_role");
     const keys = Object.keys(tool.parameters.properties);
-    assert.deepEqual(keys.sort(), ["maxTurns", "mode", "model", "role", "task", "thinkingLevel"]);
+    assert.deepEqual(keys.sort(), ["maxDepth", "maxTurns", "mode", "model", "role", "task", "thinkingLevel"]);
     // required fields are at the object level (TypeBox), not on each property
     assert.deepEqual(tool.parameters.required.sort(), ["role", "task"]);
   });
@@ -162,13 +163,14 @@ describe("spawn_role tool", () => {
     assert.equal(f.calls[0].parentSessionId, "/tmp/main.jsonl");
   });
 
-  it("background mode rejected in Phase 1 (returns error, no spawn)", async () => {
+  it("background mode returns handle immediately (Phase 5)", async () => {
     const f = fakeService();
     const { tool } = deps({ roles: [role("reviewer")], svc: f.svc });
     const out = await exec(tool, { role: "reviewer", task: "x", mode: "background" });
-    assert.equal(out.details.status, "error");
-    assert.match(out.details.error, /background/);
-    assert.equal(f.calls.length, 0);
+    assert.equal(out.details.status, "running");
+    assert.ok(out.details.handle, "handle returned in background mode");
+    assert.equal(out.details.agentId, "r1");
+    assert.ok(f.calls.length > 0, "spawn was called");
   });
 
   it("caller-signal abort forwarded to service.spawn", async () => {
@@ -310,5 +312,57 @@ describe("spawn_role tool", () => {
     const { tool } = deps({ roles: [reviewer], svc: f.svc });
     await exec(tool, { role: "reviewer", task: "x" });
     assert.equal(f.calls[0].thinkingLevel, "xhigh", "role default thinkingLevel used");
+  });
+
+  // Depth limit
+  it("depth limit: maxDepth <=0 returns error", async () => {
+    const { tool } = deps({ roles: [role("reviewer")] });
+    const out = await exec(tool, { role: "reviewer", task: "x", maxDepth: 0 });
+    assert.equal(out.details.status, "error");
+    assert.match(out.details.error, /depth/);
+  });
+
+  it("depth limit: default maxDepth=5 passes childDepth=4", async () => {
+    const f = fakeService({ id: "r1", status: "completed", result: "ok", turnCount: 1 });
+    const { tool } = deps({ roles: [role("reviewer")], svc: f.svc });
+    await exec(tool, { role: "reviewer", task: "x" });
+    assert.equal(f.calls[0].maxDepth, 4, "default depth 5 → child gets 4");
+  });
+
+  it("depth limit: explicit maxDepth=3 passes childDepth=2", async () => {
+    const f = fakeService({ id: "r1", status: "completed", result: "ok", turnCount: 1 });
+    const { tool } = deps({ roles: [role("reviewer")], svc: f.svc });
+    await exec(tool, { role: "reviewer", task: "x", maxDepth: 3 });
+    assert.equal(f.calls[0].maxDepth, 2, "explicit depth 3 → child gets 2");
+  });
+
+  // Background handle
+  it("background handle: wait() returns completed result", async () => {
+    const f = fakeService({ id: "r1", status: "completed", result: "background task done", turnCount: 3 });
+    const { tool } = deps({ roles: [role("reviewer")], svc: f.svc });
+    const out = await exec(tool, { role: "reviewer", task: "x", mode: "background" });
+    const handle = out.details.handle;
+    assert.equal(out.details.status, "running");
+    const result = await handle.wait();
+    assert.equal(result.status, "completed");
+    assert.ok(result.result!.findings[0].includes("background task done"));
+    assert.equal(result.turnCount, 3);
+  });
+
+  it("background handle: status() queries current state", async () => {
+    const f = fakeService({ id: "r1", status: "completed", result: "ok", turnCount: 1 });
+    const { tool } = deps({ roles: [role("reviewer")], svc: f.svc });
+    const out = await exec(tool, { role: "reviewer", task: "x", mode: "background" });
+    const handle = out.details.handle;
+    // After wait completes (fake resolves immediately), status is terminal
+    await handle.wait();
+    assert.ok(["completed", "aborted", "error"].includes(handle.status()), `status was ${handle.status()}`);
+  });
+
+  it("handle.depth reflects nesting level", async () => {
+    const f = fakeService({ id: "r1", status: "completed", result: "ok", turnCount: 1 });
+    const { tool } = deps({ roles: [role("reviewer")], svc: f.svc });
+    const out = await exec(tool, { role: "reviewer", task: "x", mode: "background", maxDepth: 3 });
+    assert.equal(out.details.handle.depth, 2, "depth 3 → child depth 2");
   });
 });

@@ -90,6 +90,12 @@ export class SubagentsService {
     return true;
   }
 
+  /** Returns {abort} for the given agent id, or undefined if not found. */
+  getAbortController(id: string): { abort: () => void } | undefined {
+    const h = this.handles.get(id);
+    return h ? { abort: () => h.abortController.abort() } : undefined;
+  }
+
   hasRunning(): boolean {
     return this.registry.hasRunning();
   }
