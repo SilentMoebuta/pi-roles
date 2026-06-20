@@ -110,3 +110,39 @@ STEP 3 — ONLY IF NEEDED (Tier 3):
 
 → Synthesize after each step; stop when enough evidence gathered.
 ```
+
+## PRISMA-Style Screening (core 20%)
+
+Adopt the CORE 20% of PRISMA 2020 (Page et al., BMJ 2021 — gold standard for evidence synthesis, adopted by Cochrane/WHO), NOT the full medical-review flow:
+
+1. **Declare inclusion/exclusion criteria BEFORE searching** — prevents confirmation bias (deciding after seeing results). E.g. "include: official docs + source code + 2024+; exclude: AI-generated content, non-English, <3rd-party-citation blog posts."
+2. **Screening count** — record N found → N after dedup → N title/abstract screened → N full-text → N included. Surface this in the report (a one-line flow).
+3. **Exclusion reasons** — document WHY each excluded source was dropped (outdated, irrelevant, duplicate, low quality, behind paywall).
+
+This makes the research auditable + reproducible, and surfaces publication/selection bias.
+
+## Search Strategy Documentation + Snowballing
+
+Document the search PROCESS itself (Kitchenham 2004, EBSE):
+- Exact search strings used (the queries)
+- Sources/databases searched + rationale for each
+- Date ranges applied
+- N results per source
+
+**Snowballing** (critical discovery technique):
+- **Backward** — chase the citations of a strong source (find what IT relied on)
+- **Forward** — find newer sources citing a strong source (find what built on it)
+
+Catches canonical/foundational work that keyword search misses.
+
+## Saturation Heuristic — When to Stop
+
+"Diminishing returns" is dangerously vague. Use a concrete saturation criterion (grounded theory, Glaser & Strauss 1967):
+
+> Stop after **N=3-5 consecutive sources yield no new claims** (not just no new sources — no new CLAIMS/findings).
+
+Track "new claims per source" — when it flatlines, you've saturated. State this in the report ("saturation reached after source N, last 4 sources added 0 new claims").
+
+## Retrieval-Augmented Citation Verification (newer SOTA)
+
+Models hallucinate citations. As a final verify phase step, RE-FETCH each cited URL/claim before finalizing the report — confirm the source says what you say it says. Drop any citation that 404s or doesn't support the claim. This is increasingly standard as citation hallucination is a known LLM failure mode.

@@ -69,3 +69,33 @@ Before calling report_role_result:
 - **Over-engineering** — solving future problems. YAGNI: You Ain't Gonna Need It.
 - **"Tests pass" without verification** — actually run them and check output.
 - **Big-bang commits** — 10 files in one commit. Commit after each GREEN step.
+
+## Test List First (TLTCRC)
+
+Before writing any test, write a TEST LIST: enumerate every behavior + edge case the code must handle (happy path, boundary, error, null/empty, concurrent if relevant). This catches forgotten edge cases BEFORE implementation biases you. The list is a checklist — check each off as you RED→GREEN it.
+
+## Detroit over London (for AI-agent TDD)
+
+Prefer Detroit-school (state/behavior, fewer mocks) over London-school (interaction-heavy mocking). AI agents over-mock → tests pass with mocks but fail with real objects. Mock only at trust boundaries (external APIs, the clock, the filesystem when slow); use the real thing for in-repo code.
+
+## Property-Based Testing (fast-check)
+
+For logic with invariants (parsers, serializers, state machines, math), add property-based tests (QuickCheck/Hypothesis; `fast-check` is the drop-in for TS). Instead of 3 examples, assert the INVARIANT holds for 1000 generated inputs:
+
+```ts
+import fc from "fast-check";
+fc.assert(fc.property(fc.array(fc.integer()), (arr) => {
+  const roundtrip = deserialize(serialize(arr));
+  assert.deepEqual(roundtrip, arr); // invariant: serialize→deserialize is identity
+}));
+```
+
+Catches edge cases example-tests miss (empty, negatives, large, duplicates). Highest-leverage testing gap for the coder role.
+
+## Mutation Testing (Stryker) — Test-Quality Gate
+
+To verify your tests actually catch bugs (not just cover lines), run Stryker (active JS/TS mutator in 2026). It mutates your code (flips `> ` to `>=`, removes conditions) and checks if a test fails. Surviving mutants = tests that don't catch the bug. Gate behind a role flag (suite×N mutants is heavy) — run before merging high-risk logic.
+
+## Atomic Commits with WHY Body
+
+Commit after each GREEN step, with a body explaining WHY (not just what). `git commit -m "fix(auth): guard null user" -m "Guards against the race where the session is created before the user record lands. Closes the null-deref seen in prod log X."` The WHY is the audit trail; the what is in the diff.

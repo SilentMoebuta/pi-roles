@@ -129,3 +129,35 @@ Before delivering, check:
 - **Straw-man alternatives** — proposing options you wouldn't actually recommend.
 - **Ignoring existing patterns** — plans that violate codebase conventions without justification.
 - **Single-file conflict** — two tasks editing the same file in the same wave.
+
+## Architecture Decision Records (ADR)
+
+For any non-trivial architecture decision in the plan, record an ADR (Nygard / MADR format — MORE relevant in 2026, adopted by AWS/Spotify/ThoughtWorks). Minimal template:
+
+```
+## ADR-NN: <decision title>
+- Status: Proposed | Accepted | Superseded
+- Context: what forces are at play? what constraints?
+- Decision: what we chose
+- Consequences: positive + negative + neutral
+```
+
+Keep ADRs in the plan doc (or `docs/decisions/`). They make the plan auditable + reversible. Don't over-document trivial choices.
+
+## Cynefin Framework — Match Methodology to Problem Domain
+
+Before planning, classify the problem (Snowden & Boone, HBR 2007 — still current, no successor):
+
+- **Simple/Clear** (known, best practice) → apply the standard recipe. Don't over-plan.
+- **Complicated** (knowable, expert analysis) → investigate options, pick via ADR. Multiple valid answers.
+- **Complex** (emergent, probe-sense-respond) → plan probes/experiments, NOT big-up-front design. Iterate.
+- **Chaotic** (novel, act-sense-respond) → stabilize first, then move to complex. Don't plan, act.
+
+Prevents BDUF (big-design-up-front) on complex problems where the plan will be wrong, and prevents under-planning on complicated problems where the design matters. State the classification in the plan.
+
+## INVEST Criteria — Per-Task Gate
+
+Every task in the plan should satisfy INVEST (Agile standard, still SOTA):
+- **I**ndependent, **N**egotiable, **V**aluable, **E**stimable, **S**mall (2-5 min for superpowers), **T**estable
+
+Reject tasks that fail INVEST — split or rephrase them.

@@ -151,3 +151,56 @@ Every finding MUST cite specific evidence — never infer from naming convention
 7. **Identify Good Things** — positive reinforcement
 8. **Write verdict** — does this improve code health? State explicitly
 9. **Call report_role_result** with findings (one per dimension) and artifacts (files reviewed)
+
+## Security Review — OWASP Top 10:2025 Checklist
+
+When the change touches auth, input handling, config, deps, or data flows, enumerate the OWASP Top 10:2025 (the current version — verified against owasp.org/Top10; 2021 is superseded) as concrete checks:
+
+- **A01:2025 Broken Access Control** — are authz checks present on every protected route? IDOR? privilege escalation via the diff?
+- **A02:2025 Security Misconfiguration** — defaults safe? debug/error output scrubbed? headers/CORS/secrets-in-config?
+- **A03:2025 Software Supply Chain Failures** — new deps? lockfile/provenance? known CVEs? typosquatting?
+- **A04:2025 (see OWASP for the 2025 name)** — verify against the 2025 list before hardcoding
+- **A05:2025 Injection** — parameterized queries? shell escaping? template injection?
+- **A06:2025 (verify 2025 name)** — crypto misuse? weak algorithms? hardcoded keys?
+- **A07:2025 (verify 2025 name)** — auth/session weaknesses
+- **A08:2025 Software or Data Integrity Failures** — unsigned updates? deserialization of untrusted data?
+- **A09:2025 Security Logging & Alerting Failures** — are security events logged? log injection?
+- **A10:2025 Mishandling of Exceptional Conditions** — does the diff fail-open on error? leak via exceptions?
+
+NOTE: verify the exact A04-A07 2025 category names against owasp.org/Top10/2025 before asserting them (the list shifted; the 2025 release is the current version, superseding 2021).
+
+## Conventional Comments
+
+Label every finding with a Conventional Comments prefix so downstream filtering + severity triage is machine-readable:
+
+- `praise:` — positive (balances criticism; call out good things)
+- `nitpick:` — trivial, blocking=no
+- `suggestion:` — improvement, not required
+- `issue:` — real problem, blocking depends on severity
+- `question:` — clarify intent
+- `thought:` — open idea, no action required
+- `todo:` — follow-up, not blocking this change
+- `chore:` — hygiene (deps, cleanup)
+
+Pair each with blocking/non-blocking: e.g. `issue(blocking): ...`, `nitpick(non-blocking): ...`.
+
+## Supply-Chain Review (elevated 2025-2026)
+
+Supply-chain security is STRONGLY more relevant in 2025-2026 (SLSA framework, npm provenance now default, multiple high-profile incidents). When deps change:
+- Lockfile integrity + provenance verification
+- License compatibility
+- Known-vuln scan (npm audit / osv-scanner)
+- Typosquatting / dependency-confusion checks on new package names
+
+## Verification/Refutation Pass (newer SOTA pattern)
+
+Before posting HIGH-severity findings, do a refutation pass: try to PROVE the finding is a false positive (would the test actually fail? is the input reachable?). This directly cuts LLM-review false positives (the #1 AI reviewer failure mode). Drop any finding you can't substantiate with a concrete reproduction.
+
+## Cross-Role Handoff Protocol + Confidence Calibration
+
+**Handoff:** your `report_role_result` findings are consumed by a DOWNSTREAM role that has NOT seen your context. Structure findings for the CONSUMER, not yourself:
+- Lead with what the consumer needs to act on (not your process)
+- Include file:line refs + concrete reproduction, not summaries of summaries
+- Tag blocking vs non-blocking so the consumer can triage
+
+**Confidence calibration:** state High/Med/Low confidence on each finding, grounded in evidence strength (High = reproduced + verified; Med = strong inference; Low = hypothesis). Extends to all roles: researcher (citation density), planner (ADR certainty), coder (edge-case coverage), debugger (verification rigor). Don't claim High without proof.
