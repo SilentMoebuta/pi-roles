@@ -66,6 +66,13 @@ describe("role definitions (roles/*.md)", () => {
     assert.ok(reviewer.tools.includes("read"), "reviewer can read");
   });
 
+  it("reviewer has SOTA prompt content: Good Things + Pre-existing tier", () => {
+    const reviewer = roles.get("reviewer")!;
+    assert.ok(reviewer.prompt.includes("Good Things"), "reviewer must have positive reinforcement (Good Things)");
+    assert.ok(reviewer.prompt.includes("Pre-existing"), "reviewer must have Pre-existing severity tier");
+    assert.ok(reviewer.prompt.includes("overall code health"), "reviewer must have continuous improvement philosophy");
+  });
+
   it("coder has write/edit (implementation role)", () => {
     const coder = roles.get("coder")!;
     assert.ok(coder.tools.includes("write"), "coder can write");
