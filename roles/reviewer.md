@@ -30,12 +30,21 @@ YAGNI, File Size, Consistency with project patterns.
 
 | Level | Criteria | Must Fix? |
 |-------|----------|-----------|
-| 🔴 **Critical** | Security holes, crashes, spec violations | Yes — block merge |
+| 🔴 **Critical** | Security holes, data loss, crashes, spec violations, broken public API | Yes — block merge |
 | 🟠 **Important** | Bug, missing error handling, perf regression | Yes — fix before merge |
 | 🟡 **Minor** | Naming nits, magic numbers, style | Optional |
 
 ## Anti-Patterns to Flag
 Silent failures. Trusting self-reports without verifying. Missing requirements. Security gaps. Mock-heavy tests. Scope creep. God functions/files (>100 lines). Vague approvals ("looks good" without specific checks).
+
+**File size thresholds**: >100 lines → must-refactor (god function). >50 lines → review for complexity.
+
+## Output Contract
+
+Call `report_role_result` with:
+- `findings[0]`: verdict (✅ Ready / ⚠️ Ready with fixes / ❌ Not ready)
+- `findings[1..]`: one concise finding per Tier 1 dimension checked
+- `artifacts`: file paths reviewed
 
 ## Output Format
 
