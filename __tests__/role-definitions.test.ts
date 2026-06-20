@@ -40,7 +40,7 @@ describe("role definitions (roles/*.md)", () => {
       assert.ok(r.description, `${r.name}: description set`);
       assert.ok(r.prompt.length > 0, `${r.name}: prompt body present`);
       assert.ok(r.tools.length > 0, `${r.name}: tools non-empty`);
-      assert.equal(r.maxTurns, 25, `${r.name}: maxTurns 25`);
+      assert.ok(r.maxTurns >= 25, `${r.name}: maxTurns >= 25 (reviewer gets 40 for deep reviews)`);
       assert.equal(r.canSpawn, false, `${r.name}: canSpawn defaults false`);
       assert.deepEqual(r.teammates, [], `${r.name}: teammates defaults empty`);
     }

@@ -144,7 +144,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       // Load the role's domain skills from role-specific skill directories.
       // Uses pi's public loadSkillsFromDir (ESM: __dirname is undefined; use import.meta.url).
       const _thisDir = path.dirname(fileURLToPath(import.meta.url));
-      const roleSkillsDirs = ["researcher-skills", "planner-skills"];
+      const roleSkillsDirs = ["researcher-skills", "planner-skills", "reviewer-skills", "coder-skills", "debugger-skills"];
       const allSkills: Skill[] = [];
       for (const d of roleSkillsDirs) {
         const dir = path.resolve(_thisDir, "..", "..", "roles", d);
