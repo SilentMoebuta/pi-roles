@@ -55,6 +55,16 @@ async function exec(tool: any, params: any, ctx: any = {}, signal?: AbortSignal)
   return tool.execute("tc1", params, signal, undefined, ctx);
 }
 
+// Race a promise against a timeout so a hung test FAILS cleanly instead of
+// stalling the suite (the T1-1 cancel-wiring test hangs when service.abort is
+// never called — the bug).
+function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, rej) => setTimeout(() => rej(new Error("TIMEOUT: " + msg)), ms)),
+  ]);
+}
+
 describe("spawn_role tool", () => {
   it("params schema: {role?, task?, mode?, model?, maxTurns?, thinkingLevel?, maxDepth?, agentId?}", () => {
     const { tool } = deps({ roles: [role("reviewer")] });
@@ -94,6 +104,31 @@ describe("spawn_role tool", () => {
     assert.equal(out.details.status, "aborted");
     assert.match(out.details.error, /step-limit/);
     assert.equal(out.details.agentId, "a1");
+  });
+
+  it("T1-1: tool signal abort → service.abort(id) called (grandchild cascade wiring)", async () => {
+    // When the tool's AbortSignal fires, spawn_role must call service.abort(id)
+    // so the tree cascade reaches grandchildren (service.spawn({signal}) already
+    // aborts the direct child's AbortController, but does NOT walk the tree —
+    // service.abort(id) does). This is the missing prod caller the reviewer flagged.
+    let resolveWait: () => void = () => {};
+    const waitHang = new Promise<void>((r) => { resolveWait = r; });
+    const abortCalls: string[] = [];
+    const svc = {
+      spawn: () => "sig1",
+      waitForResult: async () => { await waitHang; return { id: "sig1", status: "aborted", reason: "caller-abort", turnCount: 0 } as any; },
+      getRecord: () => ({ status: "running" }),
+      abort: (id: string) => { abortCalls.push(id); resolveWait(); return true; },
+      getAbortController: () => ({ abort: () => {} }),
+    };
+    const { tool } = deps({ roles: [role("reviewer")], svc });
+    const ac = new AbortController();
+    const execP = exec(tool, { role: "reviewer", task: "x" }, {}, ac.signal);
+    // Let spawn_role execute past service.spawn (registers the signal listener).
+    await new Promise((r) => setImmediate(r));
+    ac.abort(); // tool caller cancels
+    await withTimeout(execP, 2000, "spawn_role didn't settle after abort (T1-1 cancel wiring missing)");
+    assert.ok(abortCalls.includes("sig1"), "service.abort(id) called on tool signal (T1-1 cancel wiring)");
   });
 
   it("error run → {status:error, error, agentId}", async () => {

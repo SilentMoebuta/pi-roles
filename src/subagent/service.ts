@@ -53,8 +53,14 @@ export class SubagentsService {
   private cwd: string;
   private agentDir: string;
   private handles = new Map<string, RunHandle>();
-  /** P0-2 tree abort: parentSessionId → set of child agent IDs. */
+  /** P0-2 tree abort: parentSessionId → set of child agent IDs.
+   *  In prod, parentSessionId is the CALLER's SESSION FILE (spawn-role-tool.ts:237),
+   *  NOT an agent-id. So `children` is keyed by sessionFile. But abort(id) is called
+   *  with an AGENT ID (the caller holds the id, not the file). agentToSessionFile
+   *  bridges the two key spaces: walk(agentId) resolves the agent's sessionFile
+   *  via this map, then looks up children by that file. T1-1 fix. */
   private children = new Map<string, Set<string>>();
+  private agentToSessionFile = new Map<string, string>();
   /** P1-3: max concurrent spawns (default 5). Gates runToCompletion entry. */
   private maxConcurrentSpawns: number;
   private runningSpawns = 0;
@@ -120,6 +126,10 @@ export class SubagentsService {
   abort(id: string): boolean {
     let any = false;
     // Depth-limited tree walk — abort children recursively.
+    // T1-1: children is keyed by parentSessionId (= caller sessionFile in prod),
+    // but this walk receives AGENT IDs. Resolve each node's sessionFile via the
+    // reverse map so the cascade actually reaches descendants. Falls back to
+    // nodeId directly (legacy test wiring where parentSessionId == agent-id).
     const visited = new Set<string>();
     const walk = (nodeId: string) => {
       if (visited.has(nodeId)) return; // guard against cycles
@@ -129,7 +139,10 @@ export class SubagentsService {
         h.abortController.abort();
         any = true;
       }
-      const kids = this.children.get(nodeId);
+      // Resolve children: try the agent's own sessionFile (prod keying) first,
+      // then fall back to the agent-id itself (legacy/agent-id keying).
+      const sf = this.agentToSessionFile.get(nodeId);
+      const kids = (sf && this.children.get(sf)) || this.children.get(nodeId);
       if (kids) for (const c of kids) walk(c);
     };
     walk(id);
@@ -201,6 +214,11 @@ export class SubagentsService {
       customTools: params.customTools,
     });
     const session = spawnResult.session;
+    // T1-1: record this agent's sessionFile so abort(agentId) can resolve it to
+    // the children Map's sessionFile key. Populated here (after spawnRole) where
+    // sessionFile is available; cleared on cleanup. Without this the tree-abort
+    // cascade is a no-op in prod (children keyed by sessionFile, walked by id).
+    if (spawnResult.sessionFile) this.agentToSessionFile.set(id, spawnResult.sessionFile);
     // Notify caller of the child session file + role so the agent_end fallback
     // can recognize it as a role session (before prompt runs).
     if (spawnResult.sessionFile && params.onSessionCreated) {

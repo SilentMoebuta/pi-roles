@@ -267,6 +267,14 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       }
 
       // Foreground mode: await completion directly (no handle needed).
+      // T1-1: when the TOOL's signal aborts (caller cancels), cascade-abort the
+      // spawned subtree. service.spawn({signal}) already aborts the DIRECT child's
+      // AbortController, but does NOT walk the tree — service.abort(id) does, so
+      // grandchildren get cancelled too (the missing prod caller the reviewer
+      // flagged: abort had zero prod callers → tree-abort was dormant). Idempotent
+      // (abort guards on already-aborted). {once:true} → no leak.
+      if (signal) signal.addEventListener("abort", () => deps.service.abort(id), { once: true });
+
       let retries = Math.min(params.retryCount ?? 0, 3);
       let rec = await deps.service.waitForResult(id);
       // P2-4: retry on abort/error with exponential backoff.
