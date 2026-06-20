@@ -81,6 +81,8 @@ const Params = Type.Object({
     Type.Literal("background"),
   ], { description: "foreground (default) blocks until the role finishes; background returns immediately (Phase 5, not yet supported)." })),
   model: Type.Optional(Type.String({ description: "Override the role's default model. Use provider/modelId (e.g. 'ksyun/glm-5.2') or bare id (e.g. 'deepseek-v4-flash'). If omitted, the role's preset model is used." })),
+  maxTurns: Type.Optional(Type.Number({ description: "Override the role's maxTurns (turn budget). Useful for deep research (9999) vs quick lookup (30). If omitted, the role's preset maxTurns is used." })),
+  thinkingLevel: Type.Optional(Type.String({ description: "Override the role's thinking level (e.g. 'low', 'medium', 'high', 'xhigh'). If omitted, the role's preset thinkingLevel is used." })),
 });
 
 function okResult(details: unknown) {
@@ -93,7 +95,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
     label: "Spawn Role",
     description: "Spawn a role-scoped subagent with persona + tool whitelist + step limit. Foreground: blocks until the role reports its result via report_role_result. Returns {status, result|error, agentId}.",
     parameters: Params,
-    async execute(_toolCallId: string, params: { role: string; task: string; mode?: "foreground" | "background"; model?: string }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: unknown) {
+    async execute(_toolCallId: string, params: { role: string; task: string; mode?: "foreground" | "background"; model?: string; maxTurns?: number; thinkingLevel?: string }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: unknown) {
       const mode = params.mode ?? "foreground";
       if (mode === "background") {
         return okResult({ status: "error", error: "background mode not supported in Phase 1 (use foreground)" });
@@ -165,9 +167,9 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         task: params.task,
         parentSessionId: callerSessionFile,
         tools: childTools,
-        maxTurns: role.maxTurns,
+        maxTurns: params.maxTurns ?? role.maxTurns,
         model: resolvedModel,
-        thinkingLevel: role.thinkingLevel,
+        thinkingLevel: params.thinkingLevel ?? role.thinkingLevel,
         resourceLoader,
         onSessionCreated: (sessionFile, roleName) => {
           // Record the child's role BEFORE prompt runs, so the agent_end fallback

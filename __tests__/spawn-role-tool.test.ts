@@ -55,11 +55,11 @@ async function exec(tool: any, params: any, ctx: any = {}, signal?: AbortSignal)
 }
 
 describe("spawn_role tool", () => {
-  it("params schema: {role, task, mode?, model?}", () => {
+  it("params schema: {role, task, mode?, model?, maxTurns?, thinkingLevel?}", () => {
     const { tool } = deps({ roles: [role("reviewer")] });
     assert.equal(tool.name, "spawn_role");
     const keys = Object.keys(tool.parameters.properties);
-    assert.deepEqual(keys.sort(), ["mode", "model", "role", "task"]);
+    assert.deepEqual(keys.sort(), ["maxTurns", "mode", "model", "role", "task", "thinkingLevel"]);
     // required fields are at the object level (TypeBox), not on each property
     assert.deepEqual(tool.parameters.required.sort(), ["role", "task"]);
   });
@@ -276,5 +276,39 @@ describe("spawn_role tool", () => {
     // Provider/modelId → resolved via find()
     assert.deepEqual(foundModels, [{ p: "ksyun", id: "glm-5.2" }]);
     assert.deepEqual(f.calls[0].model, glmModel);
+  });
+
+  // maxTurns override
+  it("maxTurns override → passed to service.spawn instead of role default", async () => {
+    const reviewer = role("reviewer", { maxTurns: 25 });
+    const f = fakeService({ id: "r1", status: "completed", result: "ok", turnCount: 1 });
+    const { tool } = deps({ roles: [reviewer], svc: f.svc });
+    await exec(tool, { role: "reviewer", task: "deep research", maxTurns: 9999 });
+    assert.equal(f.calls[0].maxTurns, 9999, "override maxTurns used");
+  });
+
+  it("no maxTurns override → role default used", async () => {
+    const reviewer = role("reviewer", { maxTurns: 40 });
+    const f = fakeService({ id: "r1", status: "completed", result: "ok", turnCount: 1 });
+    const { tool } = deps({ roles: [reviewer], svc: f.svc });
+    await exec(tool, { role: "reviewer", task: "x" });
+    assert.equal(f.calls[0].maxTurns, 40, "role default maxTurns used");
+  });
+
+  // thinkingLevel override
+  it("thinkingLevel override → passed to service.spawn instead of role default", async () => {
+    const reviewer = role("reviewer", { thinkingLevel: "high" });
+    const f = fakeService({ id: "r1", status: "completed", result: "ok", turnCount: 1 });
+    const { tool } = deps({ roles: [reviewer], svc: f.svc });
+    await exec(tool, { role: "reviewer", task: "x", thinkingLevel: "xhigh" });
+    assert.equal(f.calls[0].thinkingLevel, "xhigh", "override thinkingLevel used");
+  });
+
+  it("no thinkingLevel override → role default used", async () => {
+    const reviewer = role("reviewer", { thinkingLevel: "xhigh" });
+    const f = fakeService({ id: "r1", status: "completed", result: "ok", turnCount: 1 });
+    const { tool } = deps({ roles: [reviewer], svc: f.svc });
+    await exec(tool, { role: "reviewer", task: "x" });
+    assert.equal(f.calls[0].thinkingLevel, "xhigh", "role default thinkingLevel used");
   });
 });
