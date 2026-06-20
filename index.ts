@@ -11,6 +11,7 @@ import type { SpawnDeps } from "./src/subagent/spawn";
 import { makeSpawnRoleTool } from "./src/subagent/spawn-role-tool";
 import { makeRoleSessionStartHandler } from "./src/subagent/session-start-handler";
 import { makeDagExecuteTool } from "./src/dag/dag-execute-tool";
+import { makeDagResumeTool } from "./src/dag/dag-resume-tool";
 // agent-end-fallback module retained as a potential future same-process
 // defense, but not wired (child sessions have their own extension instance).
 
@@ -69,6 +70,14 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   }) as any);
 
   pi.registerTool(makeDagExecuteTool({
+    roleRegistry,
+    service,
+    reportState,
+    cwd: dagCwd,
+    agentDir: dagAgentDir,
+  }) as any);
+
+  pi.registerTool(makeDagResumeTool({
     roleRegistry,
     service,
     reportState,

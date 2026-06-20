@@ -5,7 +5,7 @@
 // own, not its wave's). Downstream nodes whose predecessor failed receive an
 // error-context prefix on their task (5d). Uses an injected spawnFn so it
 // never touches AgentHandle and stays structuredClone-safe.
-import type { DAGSpec, WaveResult, NodeResult, DAGResult } from "./types";
+import type { DAGSpec, WaveResult, NodeResult, DAGResult, DAGProgress } from "./types";
 import { planWaves } from "./planner";
 import { aggregateWaves, errorContextPrefix, upstreamResultsPrefix } from "./state";
 import { fanOutSends } from "./send";
@@ -39,6 +39,9 @@ interface ExecuteOptions {
   /** Max concurrent spawns per wave (default 5). Caps parallel createAgentSession
    *  calls to prevent resource exhaustion (API rate limits, memory). */
   maxConcurrent?: number;
+  /** Progress callback fired at wave start and per-node settle (Gap P3).
+   *  Receives {dagId, currentWave, totalWaves, nodes: Record<nodeId,{status}>}. */
+  onProgress?: (p: DAGProgress) => void;
 }
 
 export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: ExecuteOptions = {}): Promise<DAGResult> {
@@ -63,6 +66,11 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
 
   for (let wi = startWaveIndex; wi < waves.length; wi++) {
     const wave = waves[wi];
+    // Emit progress: wave start — all nodes queued.
+    opts.onProgress?.({
+      dagId: "", currentWave: wi, totalWaves: waves.length,
+      nodes: Object.fromEntries(wave.nodes.map((n) => [n.id, { status: "queued" as const }])),
+    });
     // PARALLEL spawn (allSettled — a rejecting spawnFn does NOT abort siblings).
     // A node may be static (1 handle) or dynamic (Phase 5c: returns Send[] → N handles).
     const spawned = await Promise.allSettled(
@@ -166,6 +174,11 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
     }
 
     waveResults.push({ wave: wave.index, successes, failures });
+    // Emit progress: wave settled — per-node final status.
+    const settledStatus: Record<string, { status: "completed" | "failed"; error?: string }> = {};
+    for (const s of successes) settledStatus[s.nodeId] = { status: "completed" };
+    for (const f of failures) settledStatus[f.nodeId] = { status: "failed", error: f.error };
+    opts.onProgress?.({ dagId: "", currentWave: wi, totalWaves: waves.length, nodes: settledStatus });
   }
 
   return aggregateWaves(waveResults);

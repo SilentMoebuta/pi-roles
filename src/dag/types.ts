@@ -48,3 +48,11 @@ export interface DAGResult {
   waves: WaveResult[];
   finalContext: Record<string, NodePayload>;
 }
+
+/** Observability (Gap P3): emitted at wave start + per-node settle. */
+export interface DAGProgress {
+  dagId: string;
+  currentWave: number;
+  totalWaves: number;
+  nodes: Record<string, { status: "queued" | "running" | "completed" | "failed"; error?: string }>;
+}

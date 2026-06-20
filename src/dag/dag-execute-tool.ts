@@ -14,7 +14,7 @@ import { Type } from "typebox";
 import * as path from "node:path";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
-import { executeDAG, type SpawnFn } from "./executor";
+import { executeDAGCore, type SpawnFn } from "./executor";
 import type { DAGSpec } from "./types";
 import type { RoleDef } from "../roles";
 import type { ReportState } from "../report-tool";
@@ -31,6 +31,7 @@ const Params = Type.Object({
       depends_on: Type.Optional(Type.Array(Type.String())),
     })),
   }),
+  maxConcurrent: Type.Optional(Type.Number({ description: "Max concurrent spawns per wave (default 5). Caps parallel createAgentSession calls to prevent resource exhaustion." })),
 });
 
 export interface DagExecuteDeps {
@@ -45,7 +46,7 @@ export interface DagExecuteDeps {
 // node, this mirrors spawn-role-tool's preamble: force-include report_role_result
 // in childTools, inject skillsOverride resourceLoader + customTools, and resolve
 // the role's model. The executor calls this once per node per wave.
-function buildSpawnFn(deps: DagExecuteDeps): SpawnFn {
+export function buildSpawnFn(deps: DagExecuteDeps): SpawnFn {
   const { roleRegistry, service, cwd, agentDir } = deps;
   const _thisDir = path.dirname(fileURLToPath(import.meta.url));
   const roleSkillsDirs = ["researcher-skills", "planner-skills", "reviewer-skills", "coder-skills", "debugger-skills"];
@@ -119,13 +120,20 @@ export function makeDagExecuteTool(deps: DagExecuteDeps) {
     label: "Execute DAG",
     description: "Execute a DAG of subagent roles — topological waves, parallel spawn per wave, Promise.allSettled barrier, partial-failure isolation. Returns {status, waves, finalContext}.",
     parameters: Params,
-    async execute(_toolCallId: string, params: { spec: DAGSpec }, _signal, _onUpdate, _ctx) {
+    async execute(_toolCallId: string, params: { spec: DAGSpec; maxConcurrent?: number }, _signal, onUpdate, _ctx) {
       const spec = params.spec as DAGSpec;
       if (!spec.nodes || Object.keys(spec.nodes).length === 0) {
         return { content: [{ type: "text" as const, text: JSON.stringify({ status: "failed", reason: "empty DAG" }) }], details: { status: "failed", reason: "empty DAG" } };
       }
       const spawnFn = buildSpawnFn(deps);
-      const result = await executeDAG(spec, spawnFn);
+      // Forward progress events through pi's streaming tool-update channel (Gap P3).
+      const onProgress = onUpdate
+        ? (p: { currentWave: number; totalWaves: number; nodes?: Record<string, { status: string }> }) => {
+            const nodeCount = p.nodes ? Object.keys(p.nodes).length : 0;
+            onUpdate({ content: [{ type: "text" as const, text: `DAG wave ${p.currentWave + 1}/${p.totalWaves} (${nodeCount} nodes) running...` }], details: undefined });
+          }
+        : undefined;
+      const result = await executeDAGCore(spec, spawnFn, { maxConcurrent: params.maxConcurrent, onProgress });
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: result };
     },
   });
