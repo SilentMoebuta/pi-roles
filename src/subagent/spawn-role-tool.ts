@@ -87,6 +87,7 @@ const Params = Type.Object({
   maxTurns: Type.Optional(Type.Number({ description: "Override the role's maxTurns (turn budget). Useful for deep research (9999) vs quick lookup (30). If omitted, the role's preset maxTurns is used." })),
   thinkingLevel: Type.Optional(Type.String({ description: "Override the role's thinking level (e.g. 'low', 'medium', 'high', 'xhigh'). If omitted, the role's preset thinkingLevel is used." })),
   maxDepth: Type.Optional(Type.Number({ description: "Maximum nesting depth for recursive spawns. Default 5. Decrements per nesting level. Sub-agents at depth <=0 cannot spawn further." })),
+  agentId: Type.Optional(Type.String({ description: "Wait for a background agent by its ID. If provided, blocks until the agent completes and returns its result (join mode)." })),
 });
 
 function okResult(details: unknown) {
@@ -99,7 +100,16 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
     label: "Spawn Role",
     description: "Spawn a role-scoped subagent with persona + tool whitelist + step limit. Foreground: blocks until the role reports its result via report_role_result. Returns {status, result|error, agentId}.",
     parameters: Params,
-    async execute(_toolCallId: string, params: { role: string; task: string; mode?: "foreground" | "background"; model?: string; maxTurns?: number; thinkingLevel?: string; maxDepth?: number }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: unknown) {
+    async execute(_toolCallId: string, params: { role: string; task: string; mode?: "foreground" | "background"; model?: string; maxTurns?: number; thinkingLevel?: string; maxDepth?: number; agentId?: string }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: unknown) {
+      // Join mode: wait for a background agent by its ID.
+      if (params.agentId) {
+        const rec = await deps.service.waitForResult(params.agentId);
+        const payload = rec.reportPayload ?? (rec.result ? { findings: [rec.result], artifacts: [] } : { findings: [], artifacts: [] });
+        if (rec.status === "completed") return okResult({ status: "completed", result: payload, agentId: params.agentId });
+        if (rec.status === "aborted") return okResult({ status: "aborted", error: rec.reason ?? "aborted", agentId: params.agentId });
+        return okResult({ status: "error", error: rec.error ?? rec.reason ?? "unknown error", agentId: params.agentId });
+      }
+
       const mode = params.mode ?? "foreground";
 
       // Depth limit: maxDepth decrements per nesting level.
