@@ -64,6 +64,26 @@ describe("dag executor (waves + barrier + partial failure)", () => {
     assert.equal(r.status, "failed");
   });
 
+  it("upstream results injected into downstream static node task (Gap D fix)", async () => {
+    const spec: DAGSpec = { nodes: {
+      a: { role: "coder", task: "[node:a] write auth" },
+      b: { role: "reviewer", task: "[node:b] review", depends_on: ["a"] },
+    }};
+    let bTask = "";
+    const spawnFn: SpawnFn = async (_role, task) => {
+      if (task.includes("[node:b]")) bTask = task;
+      const nodeId = (task.match(/\[node:([^\]]+)\]/) ?? ["", "x"])[1];
+      const oc = nodeId === "a" ? { status: "completed" as const, result: { findings: ["auth-done"], artifacts: ["src/auth.ts", "src/session.ts"] } }
+        : { status: "completed" as const, result: { findings: ["review-done"], artifacts: [] } };
+      return { agentId: nodeId, wait: async () => ({ status: oc.status, result: oc.result, reportPayload: oc.result }) };
+    };
+    await executeDAG(spec, spawnFn);
+    // b's task should contain upstream results JSON with actual artifact paths
+    assert.ok(bTask.includes('src/auth.ts'), "b sees auth's actual artifact: src/auth.ts");
+    assert.ok(bTask.includes('src/session.ts'), "b sees auth's actual artifact: src/session.ts");
+    assert.ok(bTask.includes('[Upstream results'), "task has the Upstream results prefix");
+  });
+
   it("spawn-phase rejection does NOT abort sibling spawns (allSettled on spawn too)", async () => {
     const spec: DAGSpec = { nodes: {
       a: { role: "coder", task: "[node:a] do a" },

@@ -78,6 +78,33 @@ describe("dag executor 5c — dynamic Send fan-out integrated with static nodes"
     const spawnFn: SpawnFn = async (_r, task) => handle(task, `x-${task}`);
     await executeDAG(spec, spawnFn);
     assert.ok(seenDeps, "dynamic node received a dependencies context");
-    assert.ok((seenDeps as any)?.prep, "upstream 'prep' result was passed in");
+    const prep = (seenDeps as any)?.prep;
+    assert.equal(prep?.status, "completed", "upstream 'prep' completed (new Gap C status field)");
+  });
+
+  it("dynamic node context includes FAILED predecessor with error info (Gap C fix)", async () => {
+    let seenDeps: any;
+    const spec: DAGSpec = { nodes: {
+      bad: { role: "coder", task: "[node:bad] will fail" },
+      fanout: {
+        role: "planner",
+        task: "[node:fanout] decide",
+        depends_on: ["bad"],
+        dynamic: async (ctx) => { seenDeps = ctx.dependencies; return []; },
+      },
+    }};
+    // bad node fails
+    const spawnFn: SpawnFn = async (role, task) => {
+      const nodeId = (task.match(/\[node:([^\]]+)\]/) ?? ["", task])[1];
+      if (nodeId === "bad") {
+        return { agentId: "bad", wait: async () => ({ status: "failed" as const, error: "compile failed" }) };
+      }
+      return handle(task, `ok-${nodeId}`);
+    };
+    await executeDAG(spec, spawnFn);
+    assert.ok(seenDeps, "dynamic node received context");
+    assert.ok(seenDeps.bad, "failed predecessor IS in dependencies (not silently absent)");
+    assert.equal(seenDeps.bad.status, "failed", "status signals failure");
+    assert.equal(seenDeps.bad.error, "compile failed", "error message preserved");
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { aggregateWaves, errorContextPrefix } from "../src/dag/state";
+import { aggregateWaves, errorContextPrefix, upstreamResultsPrefix } from "../src/dag/state";
 import type { WaveResult } from "../src/dag/types";
 
 describe("dag state (aggregation + error propagation)", () => {
@@ -34,5 +34,12 @@ describe("dag state (aggregation + error propagation)", () => {
     assert.match(prefix, /Predecessor 'a' failed/);
     assert.match(prefix, /boom/);
     assert.match(prefix, /retry, skip, fallback/);
+  });
+
+  it("upstreamResultsPrefix injects completed predecessors' actual artifacts (Gap D)", () => {
+    const prefix = upstreamResultsPrefix({ auth: { findings: ["auth-done"], artifacts: ["src/auth.ts"] } });
+    assert.match(prefix, /Upstream results/);
+    assert.match(prefix, /auth-done/);
+    assert.match(prefix, /src\/auth\.ts/);
   });
 });

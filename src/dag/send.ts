@@ -19,8 +19,14 @@ export type DynamicNode = (ctx: DynamicNodeContext) => Promise<Send[]>;
 /** Context handed to a DynamicNode: upstream results + a nodeId for logging. */
 export interface DynamicNodeContext {
   nodeId: string;
-  /** Results of this node's declared dependencies (completed ones). */
-  dependencies: Record<string, { findings: string[]; artifacts: string[] }>;
+  /** Results of this node's declared dependencies — both completed (with
+   *  result payload) and failed (with error). A dynamic node can branch on
+   *  per-dep status to decide fan-out (Phase 5c Gap C fix). */
+  dependencies: Record<string, {
+    status: "completed" | "failed";
+    result?: { findings: string[]; artifacts: string[] };
+    error?: string;
+  }>;
 }
 
 /** Resolve a Send.arg into the task string passed to spawnFn. */

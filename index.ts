@@ -10,6 +10,7 @@ import { SubagentsService } from "./src/subagent/service";
 import type { SpawnDeps } from "./src/subagent/spawn";
 import { makeSpawnRoleTool } from "./src/subagent/spawn-role-tool";
 import { makeRoleSessionStartHandler } from "./src/subagent/session-start-handler";
+import { makeDagExecuteTool } from "./src/dag/dag-execute-tool";
 // agent-end-fallback module retained as a potential future same-process
 // defense, but not wired (child sessions have their own extension instance).
 
@@ -58,10 +59,21 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   };
   const service = new SubagentsService(spawnDeps, { cwd: process.cwd(), agentDir: path.join(process.env.HOME ?? "", ".pi", "agent") });
 
+  const dagCwd = process.cwd();
+  const dagAgentDir = path.join(process.env.HOME ?? "", ".pi", "agent");
+
   pi.registerTool(makeSpawnRoleTool({
     roleRegistry,
     service,
     reportState,
+  }) as any);
+
+  pi.registerTool(makeDagExecuteTool({
+    roleRegistry,
+    service,
+    reportState,
+    cwd: dagCwd,
+    agentDir: dagAgentDir,
   }) as any);
 
   // before_agent_start: persona injection — DESCOPED (no criterion mandates it).

@@ -7,8 +7,9 @@
 // never touches AgentHandle and stays structuredClone-safe.
 import type { DAGSpec, WaveResult, NodeResult, DAGResult } from "./types";
 import { planWaves } from "./planner";
-import { aggregateWaves, errorContextPrefix } from "./state";
+import { aggregateWaves, errorContextPrefix, upstreamResultsPrefix } from "./state";
 import { fanOutSends } from "./send";
+import type { DynamicNodeContext } from "./send";
 
 export type SpawnOutcomeStatus = "completed" | "aborted" | "error" | "failed";
 
@@ -35,6 +36,9 @@ interface ExecuteOptions {
   startWaveIndex?: number;
   /** Wave results carried over from the checkpoint (prepended to the result). */
   priorWaveResults?: WaveResult[];
+  /** Max concurrent spawns per wave (default 5). Caps parallel createAgentSession
+   *  calls to prevent resource exhaustion (API rate limits, memory). */
+  maxConcurrent?: number;
 }
 
 export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: ExecuteOptions = {}): Promise<DAGResult> {
@@ -42,6 +46,20 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
   const waveResults: WaveResult[] = [...(opts.priorWaveResults ?? [])];
   const nodeResults = new Map<string, NodeResult>(opts.initialNodeResults ?? []);
   const startWaveIndex = opts.startWaveIndex ?? 0;
+  const maxConcurrent = opts.maxConcurrent ?? 5;
+
+  // Simple async semaphore — caps concurrent spawns within a wave.
+  let running = 0;
+  const pending: Array<() => void> = [];
+  const acquire = async () => {
+    if (running < maxConcurrent) { running++; return; }
+    await new Promise<void>((r) => pending.push(r));
+    running++;
+  };
+  const release = () => {
+    running--;
+    pending.shift()?.();
+  };
 
   for (let wi = startWaveIndex; wi < waves.length; wi++) {
     const wave = waves[wi];
@@ -49,18 +67,32 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
     // A node may be static (1 handle) or dynamic (Phase 5c: returns Send[] → N handles).
     const spawned = await Promise.allSettled(
       wave.nodes.map(async (n) => {
-        let task = n.task;
-        const failedDeps = n.deps.filter((d) => nodeResults.get(d)?.status === "failed");
-        for (const d of failedDeps) {
-          task += errorContextPrefix(d, nodeResults.get(d)!.error ?? "unknown");
-        }
-        let handles: SpawnHandle[];
-        if (n.dynamic) {
-          // Phase 5c: dynamic node — invoke to get Send[], fan out in parallel.
-          const deps: Record<string, { findings: string[]; artifacts: string[] }> = {};
+        await acquire();
+        try {
+          let task = n.task;
+          const failedDeps = n.deps.filter((d) => nodeResults.get(d)?.status === "failed");
+          for (const d of failedDeps) {
+            task += errorContextPrefix(d, nodeResults.get(d)!.error ?? "unknown");
+          }
+          // Gap D: inject upstream completed results as a JSON block so the
+          // downstream node (reviewer) knows the ACTUAL artifacts produced.
+          const completedDeps: Record<string, { findings: string[]; artifacts: string[] }> = {};
           for (const d of n.deps ?? []) {
             const nr = nodeResults.get(d);
-            if (nr?.status === "completed" && nr.result) deps[d] = nr.result;
+            if (nr?.status === "completed" && nr.result) completedDeps[d] = nr.result;
+          }
+          if (Object.keys(completedDeps).length > 0) {
+            task += upstreamResultsPrefix(completedDeps);
+          }
+          let handles: SpawnHandle[];
+          if (n.dynamic) {
+          // Phase 5c: dynamic node — invoke to get Send[], fan out in parallel.
+          const deps: DynamicNodeContext["dependencies"] = {};
+          for (const d of n.deps ?? []) {
+            const nr = nodeResults.get(d);
+            if (nr) {
+              deps[d] = { status: nr.status as "completed" | "failed", result: nr.result, error: nr.error };
+            }
           }
           const sends = await n.dynamic({ nodeId: n.id, dependencies: deps });
           const fanned = await fanOutSends(sends, spawnFn);
@@ -75,6 +107,9 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
           handles = [await spawnFn(n.role, task)];
         }
         return { nodeId: n.id, handles };
+        } finally {
+          release();
+        }
       }),
     );
 

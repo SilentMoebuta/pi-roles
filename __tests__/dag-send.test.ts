@@ -37,7 +37,7 @@ describe("dag send — dynamic fan-out", () => {
       const n = Object.keys(ctx.dependencies).length > 0 ? 3 : 1;
       return Array.from({ length: n }, (_, i) => ({ role: "coder", arg: `sub-task-${i}` }));
     };
-    const sends = await planner({ nodeId: "plan", dependencies: { prep: { findings: ["x"], artifacts: [] } } });
+    const sends = await planner({ nodeId: "plan", dependencies: { prep: { status: "completed", result: { findings: ["x"], artifacts: [] } } } });
     assert.equal(sends.length, 3, "3 Sends when dependencies present");
     const spawned: string[] = [];
     const spawnFn: SpawnFn = async (role, task) => { spawned.push(task); return handle(task); };

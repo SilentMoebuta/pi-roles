@@ -23,3 +23,12 @@ export function aggregateWaves(waves: WaveResult[]): DAGResult {
 export function errorContextPrefix(failedNode: string, errorMessage: string): string {
   return `\n[Predecessor '${failedNode}' failed: ${errorMessage}]. Decide: retry, skip, fallback, or escalate.`;
 }
+
+// Prefix appended to a node's task with the ACTUAL results of completed
+// predecessors (Gap D — static nodes received no upstream data, only their
+// planned task string). The downstream node (e.g. reviewer) can parse this
+// JSON block to discover the real artifacts produced by upstream coders,
+// rather than relying on the planner's guesses.
+export function upstreamResultsPrefix(completed: Record<string, { findings: string[]; artifacts: string[] }>): string {
+  return `\n[Upstream results: ${JSON.stringify(completed)}]`;
+}
