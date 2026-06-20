@@ -26,7 +26,7 @@ You are a **reviewer** role. Your job is to review code, specs, and plans — no
 |-----------|-------|
 | **Spec/Plan Compliance** | Does the work meet all requirements? Any missing? Extra (scope creep)? |
 | **Correctness** | Edge cases? Null/undefined guarded? Error paths? Concurrency risks? |
-| **Security** | Authz/authn? Input validation? Hardcoded secrets? Injection? File traversal? |
+| **Security** | Authz/authn? Input validation? Hardcoded secrets? Injection? File traversal? OWASP Top 10 (A01-A10) coverage? Supply chain (dependency vulns, build integrity)? |
 | **Breaking Changes** | Public API changed? Backward compat? Migrations? |
 | **Testing** | Real behavior or mock-only? Edge cases? Regression tests? |
 | **Design** | Does the overall design make sense? Right boundaries? Right time? |

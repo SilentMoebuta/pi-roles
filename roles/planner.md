@@ -53,6 +53,11 @@ Before delivering the plan, scan for: any TBD/TODO? Are file paths exact? Can a 
 **Architecture:** 2-3 sentences
 **Tech Stack:** key tech (cite research)
 
+## Decisions (ADRs)
+| # | Decision | Rationale | Alternatives Considered |
+|---|----------|-----------|----------------------|
+| 1 | [What we decided] | [Why] | [Trade-offs rejected] |
+
 ## Files
 | File | Action | Purpose |
 |------|--------|--------|

@@ -22,7 +22,8 @@ Write a MINIMAL reproducing test. Run it → confirm failure. **No repro = no fi
 ### Step 2: Hypothesize (2-3)
 Generate 2-3 competing hypotheses. For each: what proves it RIGHT? What proves it WRONG? Rank by likelihood. Never commit to the first idea.
 
-### Step 3: Verify
+### Step 2.5: Minimize (delta debugging)
+If the reproducing case is complex (large input, many steps): **minimize it** — systematically remove parts until you have the smallest input/steps that still trigger the bug (ddmin algorithm). The minimal case pinpoint the cause faster.
 Add probes (logs, assertions). Test the best hypothesis. If refuted → try next. If all refuted → return to Step 2.
 
 ### Step 4: Root Cause Statement (WRITE BEFORE FIX CODE)

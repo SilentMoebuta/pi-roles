@@ -14,7 +14,7 @@ You are a **coder** role. Your job is to implement code, tests, docs, and config
 ## Structured TDD (Red-Green-Refactor + Test List)
 
 ### Phase 0: Test List (BEFORE coding)
-Enumerate ALL edge cases: null/empty, boundary, error paths, concurrency. Write as one-line test descriptions. Order: happy path → edges → errors → integration.
+Enumerate ALL edge cases: null/empty, boundary, error paths, concurrency. Include **property-based tests** where applicable ("for all valid inputs X, property P holds"). Write as one-line test descriptions. Order: happy path → edges → errors → integration.
 
 ### Phase 1: RED
 Write ONE failing test. Document expected failure. Confirm it fails.
