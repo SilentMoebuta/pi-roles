@@ -96,6 +96,7 @@ const Params = Type.Object({
   thinkingLevel: Type.Optional(Type.String({ description: "Override the role's thinking level (e.g. 'low', 'medium', 'high', 'xhigh'). If omitted, the role's preset thinkingLevel is used." })),
   maxDepth: Type.Optional(Type.Number({ description: "Maximum nesting depth for recursive spawns. Default 5. Decrements per nesting level. Sub-agents at depth <=0 cannot spawn further." })),
   agentId: Type.Optional(Type.String({ description: "Wait for a background agent by its ID. If provided, blocks until the agent completes and returns its result (join mode)." })),
+  retryCount: Type.Optional(Type.Number({ description: "P2-4: number of retries on abort/error (max 3, exponential backoff 500ms-2s). Default 0." })),
 });
 
 function okResult(details: unknown) {
@@ -108,7 +109,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
     label: "Spawn Role",
     description: "Spawn a role-scoped subagent with persona + tool whitelist + step limit. Foreground: blocks until the role reports its result via report_role_result. Returns {status, result|error, agentId}.",
     parameters: Params,
-    async execute(_toolCallId: string, params: { role: string; task: string; mode?: "foreground" | "background"; model?: string; maxTurns?: number; thinkingLevel?: string; maxDepth?: number; agentId?: string }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: unknown) {
+    async execute(_toolCallId: string, params: { role: string; task: string; mode?: "foreground" | "background"; model?: string; maxTurns?: number; thinkingLevel?: string; maxDepth?: number; agentId?: string; retryCount?: number }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: unknown) {
       // Join mode: wait for a background agent by its ID.
       if (params.agentId) {
         const rec = await deps.service.waitForResult(params.agentId);
@@ -214,6 +215,11 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       const childReportState: ReportState = { reported: new Set(), activeRole: new Map(), payloads: new Map() };
       const childReportTool = makeReportTool({ state: childReportState, schema: role.outputSchema ?? DEFAULT_REPORT_SCHEMA, failedStep: role.name });
 
+      const onSessionCreated = (sessionFile: string, roleName: string) => {
+        deps.reportState.activeRole.set(sessionFile, roleName);
+        console.error(`[pi-roles:spawn] recorded activeRole[${sessionFile}]=${roleName}`);
+      };
+
       const id = deps.service.spawn({
         role: role.name,
         task: params.task,
@@ -225,13 +231,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         thinkingLevel: params.thinkingLevel ?? role.thinkingLevel,
         resourceLoader,
         customTools: [childReportTool],
-        onSessionCreated: (sessionFile, roleName) => {
-          // Record the child's role BEFORE prompt runs, so the agent_end fallback
-          // recognizes the session as a role session (in case the model never calls
-          // report_role_result).
-          deps.reportState.activeRole.set(sessionFile, roleName);
-          console.error(`[pi-roles:spawn] recorded activeRole[${sessionFile}]=${roleName}`);
-        },
+        onSessionCreated,
         signal,
         // P0-1: for background mode, notify parent when child completes.
         onComplete: mode === "background" && deps.notifyParent
@@ -256,14 +256,36 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       }
 
       // Foreground mode: await completion directly (no handle needed).
-      const rec = await deps.service.waitForResult(id);
+      let retries = Math.min(params.retryCount ?? 0, 3);
+      let rec = await deps.service.waitForResult(id);
+      // P2-4: retry on abort/error with exponential backoff.
+      while (retries > 0 && (rec.status === "aborted" || rec.status === "error")) {
+        const delay = (3 - retries + 1) * 500; // 500ms, 1s, 2s
+        await new Promise(r => setTimeout(r, delay));
+        const newId = deps.service.spawn({
+          role: role.name,
+          task: params.task,
+          parentSessionId: callerSessionFile,
+          tools: childTools,
+          maxTurns: params.maxTurns ?? role.maxTurns,
+          maxDepth: childDepth,
+          model: resolvedModel,
+          thinkingLevel: params.thinkingLevel ?? role.thinkingLevel,
+          resourceLoader,
+          customTools: [childReportTool],
+          onSessionCreated,
+          signal,
+        });
+        rec = await deps.service.waitForResult(newId);
+        retries--;
+      }
       const payload = rec.reportPayload
         ?? (rec.sessionFile ? deps.reportState.payloads.get(rec.sessionFile) : undefined);
       const result = payload ?? (rec.result ? { findings: [rec.result], artifacts: [] } : { findings: [], artifacts: [] });
 
-      if (rec.status === "completed") return okResult({ status: "completed", result, agentId: id, sessionFile: rec.sessionFile });
-      if (rec.status === "aborted") return okResult({ status: "aborted", error: rec.reason ?? "aborted", agentId: id, sessionFile: rec.sessionFile });
-      return okResult({ status: "error", error: rec.error ?? rec.reason ?? "unknown error", agentId: id, sessionFile: rec.sessionFile });
+      if (rec.status === "completed") return okResult({ status: "completed", result, agentId: rec.id ?? id, sessionFile: rec.sessionFile });
+      if (rec.status === "aborted") return okResult({ status: "aborted", error: rec.reason ?? "aborted", agentId: rec.id ?? id, sessionFile: rec.sessionFile });
+      return okResult({ status: "error", error: rec.error ?? rec.reason ?? "unknown error", agentId: rec.id ?? id, sessionFile: rec.sessionFile });
     },
   });
 }

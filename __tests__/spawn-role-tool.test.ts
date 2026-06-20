@@ -60,7 +60,7 @@ describe("spawn_role tool", () => {
     const { tool } = deps({ roles: [role("reviewer")] });
     assert.equal(tool.name, "spawn_role");
     const keys = Object.keys(tool.parameters.properties);
-    assert.deepEqual(keys.sort(), ["agentId", "maxDepth", "maxTurns", "mode", "model", "role", "task", "thinkingLevel"]);
+    assert.deepEqual(keys.sort(), ["agentId", "maxDepth", "maxTurns", "mode", "model", "retryCount", "role", "task", "thinkingLevel"]);
     // required fields are at the object level (TypeBox), not on each property
     // All fields are optional (join mode needs only agentId, spawn needs role+task)
     assert.ok(!tool.parameters.required || tool.parameters.required.length === 0, "all fields optional");
