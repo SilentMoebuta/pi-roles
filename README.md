@@ -1,7 +1,7 @@
 # pi-roles
 
 > Multi-roles for the [pi](https://github.com/earendil-works/pi) coding agent.
-> **Status:** Phase 5 complete + production hardening Tier 1-6 (2026-06-20). DAG executor, dynamic Send, checkpoint/resume, planner→DAG bridge, prod-wired tree-abort, proactive auto-compact + output-contract enforcement, OTel telemetry. 249 tests, tsc 0.
+> **Status:** Phase 5 complete + production hardening Tier 1-6 (2026-06-20) + SOTA refresh (2026-06-20, main `694b539`). DAG executor, dynamic Send, checkpoint/resume, planner→DAG bridge, prod-wired tree-abort, proactive auto-compact + output-contract enforcement (reactive P0-4 enforcer + proactive G-OUT-2 tool_choice via before_provider_request), OTel telemetry hook (inert — wire `onTelemetry` to export). 259 tests, tsc 0.
 
 ## What it does
 
