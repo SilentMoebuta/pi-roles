@@ -8,6 +8,7 @@
 import type { DAGSpec, WaveResult, NodeResult, DAGResult } from "./types";
 import { planWaves } from "./planner";
 import { aggregateWaves, errorContextPrefix } from "./state";
+import { fanOutSends, sendToTask } from "./send";
 
 export type SpawnOutcomeStatus = "completed" | "aborted" | "error" | "failed";
 
@@ -32,6 +33,7 @@ export async function executeDAG(spec: DAGSpec, spawnFn: SpawnFn): Promise<DAGRe
 
   for (const wave of waves) {
     // PARALLEL spawn (allSettled — a rejecting spawnFn does NOT abort siblings).
+    // A node may be static (1 handle) or dynamic (Phase 5c: returns Send[] → N handles).
     const spawned = await Promise.allSettled(
       wave.nodes.map(async (n) => {
         let task = n.task;
@@ -39,15 +41,27 @@ export async function executeDAG(spec: DAGSpec, spawnFn: SpawnFn): Promise<DAGRe
         for (const d of failedDeps) {
           task += errorContextPrefix(d, nodeResults.get(d)!.error ?? "unknown");
         }
-        const h = await spawnFn(n.role, task);
-        return { nodeId: n.id, h };
+        let handles: SpawnHandle[];
+        if (n.dynamic) {
+          // Phase 5c: dynamic node — invoke to get Send[], fan out in parallel.
+          const deps: Record<string, { findings: string[]; artifacts: string[] }> = {};
+          for (const d of n.deps ?? []) {
+            const nr = nodeResults.get(d);
+            if (nr?.status === "completed" && nr.result) deps[d] = nr.result;
+          }
+          const sends = await n.dynamic({ nodeId: n.id, dependencies: deps });
+          handles = await fanOutSends(sends, spawnFn);
+        } else {
+          handles = [await spawnFn(n.role, task)];
+        }
+        return { nodeId: n.id, handles };
       }),
     );
 
     // Partition: rejected spawns → immediate failed NodeResult; fulfilled → wait.
     const successes: NodeResult[] = [];
     const failures: NodeResult[] = [];
-    const toWait: { nodeId: string; h: SpawnHandle }[] = [];
+    const toWait: { nodeId: string; handles: SpawnHandle[] }[] = [];
     spawned.forEach((res, i) => {
       const nodeId = wave.nodes[i].id;
       if (res.status === "rejected") {
@@ -56,34 +70,45 @@ export async function executeDAG(spec: DAGSpec, spawnFn: SpawnFn): Promise<DAGRe
         failures.push(nr);
         nodeResults.set(nodeId, nr);
       } else {
-        toWait.push({ nodeId, h: res.value.h });
+        toWait.push({ nodeId, handles: res.value.handles });
       }
     });
 
     // BARRIER: wait for all spawned nodes (allSettled — a failing wait does NOT abort siblings).
-    const settled = await Promise.allSettled(toWait.map(({ h }) => h.wait()));
-    settled.forEach((res, i) => {
-      const { nodeId } = toWait[i];
-      if (res.status === "fulfilled") {
-        const r = res.value;
-        if (r.status === "completed") {
-          const payload = r.reportPayload ?? r.result ?? { findings: [], artifacts: [] };
-          const nr: NodeResult = { nodeId, status: "completed", result: payload };
-          successes.push(nr);
-          nodeResults.set(nodeId, nr);
+    // A dynamic node's N handles are all awaited; their payloads are merged into one NodeResult.
+    const settled = await Promise.allSettled(toWait.flatMap(({ handles }) => handles.map((h) => h.wait())));
+    // Map each settled result back to its nodeId (handles were flattened in toWait order).
+    let flatIdx = 0;
+    for (const { nodeId, handles } of toWait) {
+      const subResults: { findings: string[]; artifacts: string[] }[] = [];
+      let subError: string | undefined;
+      let allCompleted = true;
+      for (let j = 0; j < handles.length; j++) {
+        const res = settled[flatIdx++];
+        if (res.status === "fulfilled" && res.value.status === "completed") {
+          subResults.push(res.value.reportPayload ?? res.value.result ?? { findings: [], artifacts: [] });
         } else {
-          // aborted | error | failed → failed NodeResult (non-completed wait outcomes are failures)
-          const nr: NodeResult = { nodeId, status: "failed", error: r.error ?? r.status };
-          failures.push(nr);
-          nodeResults.set(nodeId, nr);
+          allCompleted = false;
+          subError = res.status === "fulfilled" ? (res.value.error ?? res.value.status) : (res.reason instanceof Error ? res.reason.message : String(res.reason));
         }
+      }
+      if (allCompleted) {
+        const merged: NodeResult = {
+          nodeId,
+          status: "completed",
+          result: {
+            findings: subResults.flatMap((r) => r.findings),
+            artifacts: subResults.flatMap((r) => r.artifacts),
+          },
+        };
+        successes.push(merged);
+        nodeResults.set(nodeId, merged);
       } else {
-        const err = res.reason instanceof Error ? res.reason.message : String(res.reason);
-        const nr: NodeResult = { nodeId, status: "failed", error: err };
+        const nr: NodeResult = { nodeId, status: "failed", error: subError ?? "unknown" };
         failures.push(nr);
         nodeResults.set(nodeId, nr);
       }
-    });
+    }
 
     waveResults.push({ wave: wave.index, successes, failures });
   }

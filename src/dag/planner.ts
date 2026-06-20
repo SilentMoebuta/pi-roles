@@ -7,6 +7,8 @@ export interface PlannedNode {
   role: string;
   task: string;
   deps: string[];
+  /** Phase 5c: carried from DAGNode.dynamic so the executor can fan out. */
+  dynamic?: import("./send").DynamicNode;
 }
 
 export interface Wave {
@@ -41,7 +43,7 @@ export function planWaves(spec: DAGSpec): Wave[] {
       index: waveIndex++,
       nodes: ready.map((id) => {
         const n = spec.nodes[id];
-        return { id, role: n.role, task: n.task, deps: n.depends_on ?? [] };
+        return { id, role: n.role, task: n.task, deps: n.depends_on ?? [], dynamic: n.dynamic };
       }),
     });
     for (const id of ready) {

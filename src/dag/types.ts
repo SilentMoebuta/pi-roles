@@ -5,6 +5,11 @@ export interface DAGNode {
   role: string;
   task: string;
   depends_on?: string[];
+  /** Phase 5c: if set, this node is a DynamicNode — instead of a fixed
+   *  {role, task}, it returns Send[] at runtime and the executor fans those
+   *  out as parallel spawns within the wave. The static role/task are ignored
+   *  when dynamic is set. */
+  dynamic?: import("./send").DynamicNode;
 }
 
 export interface DAGSpec {
