@@ -20,6 +20,8 @@ export interface RoleDef {
   /** P1-1: per-tool deny patterns (glob-like). Key = tool name, value = deny patterns.
    *  Populated when role frontmatter uses object-form tools: field. */
   toolDenyRules?: Record<string, string[]>;
+  /** P2-2: tools denied to this role. Stripped from childTools before spawn. */
+  disallowedTools?: string[];
 }
 
 export const DEFAULT_MAX_TURNS = 25;
@@ -47,6 +49,7 @@ export function parseRoleFrontmatter(file: string): RoleDef {
   const thinkingLevel = get("thinkingLevel");
   // P1-1: object-form tools → extract tool names + deny rules.
   const toolDenyRules: Record<string, string[]> = {};
+  const disallowedTools = parseList(get("disallowedTools"));
   if (tools.length === 0 && fm.includes("tools:")) {
     // Try object form parsing — find the tools: block
     const toolsBlock = (fm.match(/^tools:\s*\n([\s\S]*?)(?=^\w+:|\$)/m)??[])[1];
@@ -70,5 +73,6 @@ export function parseRoleFrontmatter(file: string): RoleDef {
   }
   const def: RoleDef = { name, description, prompt, tools, skills, maxTurns, canSpawn: false, teammates: [], model, thinkingLevel };
   if (Object.keys(toolDenyRules).length > 0) def.toolDenyRules = toolDenyRules;
+  if (disallowedTools.length > 0) def.disallowedTools = disallowedTools;
   return def;
 }

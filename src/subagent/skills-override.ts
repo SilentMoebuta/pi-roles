@@ -29,10 +29,17 @@ export interface SkillsOverrideOutput {
 export interface RoleSkillsOverrideOptions {
   /** Already-loaded domain skills (Skill[]) for this role. Phase 1 roles pass []. */
   domainSkills: Skill[];
+  /** P2-3: 'additive' (default) appends domainSkills to base pool;
+   *  'restrictive' returns ONLY domainSkills (strips the base pool). */
+  mode?: "additive" | "restrictive";
 }
 
 export function makeRoleSkillsOverride(opts: RoleSkillsOverrideOptions) {
+  const mode = opts.mode ?? "additive";
   return function (base: SkillsOverrideInput): SkillsOverrideOutput {
+    if (mode === "restrictive") {
+      return { skills: [...opts.domainSkills], diagnostics: base.diagnostics };
+    }
     // Dedup by name: base wins on conflict (common pool shouldn't be shadowed by
     // a domain skill of the same name). Phase 2 is additive — base passes through.
     const baseNames = new Set(base.skills.map((s) => s.name));

@@ -24,6 +24,8 @@ export interface DAGNode {
 
 export interface DAGSpec {
   nodes: Record<string, DAGNode>;
+  /** P2-6: max DAG nesting depth (default inherited, typically 5). */
+  maxDepth?: number;
 }
 
 export interface NodePayload {

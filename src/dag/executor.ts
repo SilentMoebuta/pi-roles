@@ -48,6 +48,8 @@ interface ExecuteOptions {
    *  and in-flight waits return early (LangGraph/OpenCode/Claude all have
    *  equivalents — we had _signal but discarded it). */
   signal?: AbortSignal;
+  /** P2-6: DAG-level max depth. Checked at wave start; remaining waves skipped when depleted. */
+  maxDepth?: number;
 }
 
 export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: ExecuteOptions = {}): Promise<DAGResult> {
@@ -56,6 +58,8 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
   const nodeResults = new Map<string, NodeResult>(opts.initialNodeResults ?? []);
   const startWaveIndex = opts.startWaveIndex ?? 0;
   const maxConcurrent = opts.maxConcurrent ?? 5;
+  const dagMaxDepth = opts.maxDepth ?? (spec as any).maxDepth ?? 5;
+  let currentDepth = dagMaxDepth;
 
   // Simple async semaphore — caps concurrent spawns within a wave.
   let running = 0;
@@ -85,6 +89,9 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
     const wave = waves[wi];
     // SOTA gap #2: between-wave abort — skip remaining waves if caller cancelled.
     if (opts.signal?.aborted) break;
+    // P2-6: DAG depth guard — skip remaining waves when depth exhausted.
+    if (currentDepth <= 0) break;
+    currentDepth--;
     // Emit progress: wave start — all nodes queued.
     opts.onProgress?.({
       dagId: "", currentWave: wi, totalWaves: waves.length,

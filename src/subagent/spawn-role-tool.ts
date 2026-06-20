@@ -159,6 +159,10 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       // BEFORE the session starts — saves a turn vs call-time error (P1-2).
       // Mirrors Claude Code's hard depth-5 where sub-agent loses Agent tool.
       let childTools = Array.from(new Set([...role.tools, "report_role_result"]));
+      // P2-2: strip explicitly disallowed tools.
+      if (role.disallowedTools) {
+        childTools = childTools.filter(t => !role.disallowedTools!.includes(t));
+      }
       if (childDepth <= 0) {
         childTools = childTools.filter(t => t !== "spawn_role" && t !== "dag_execute" && t !== "dag_resume");
       }
