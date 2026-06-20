@@ -35,6 +35,13 @@ export interface SubagentSession {
 
 export type SubagentEvent =
   | { type: "message_end"; message: { role: string; content: Array<{ type: string; text?: string; name?: string; arguments?: unknown }> } }
+  // G-LIV-1: pi's session.subscribe DOES emit tool_execution_* to subscribers
+  // (agent-session.js _handleAgentEvent emits the raw event for all types), so
+  // handling them here is sound in prod (confirmed by probe-g-liv-1-liveness-live).
+  | { type: "tool_execution_start"; toolCallId?: string; toolName?: string; args?: unknown }
+  | { type: "tool_execution_end"; toolCallId?: string; toolName?: string; result?: unknown; isError?: boolean }
+  // message_update = assistant streaming token batches (a long generation is alive).
+  | { type: "message_update"; message: { role: string; content: Array<{ type: string; text?: string }> } }
   | { type: "turn_end" }
   | { type: "agent_end" };
 
@@ -83,8 +90,25 @@ export async function runSubagent(
   const recentTexts: string[] = [];
   let abortReason: "step-limit" | "liveness" | "caller-abort" | "doom-loop" | null = null;
   let lastActivity = Date.now();
+  // G-LIV-1: pause liveness while a tool executes (the agent is waiting on an
+  // external op, not hung). A long tool that exceeds livenessMs must NOT
+  // false-abort a healthy child. A hung PROVIDER (no events at all) keeps
+  // toolInProgress=false → liveness still fires (true-positive preserved).
+  let toolInProgress = false;
 
   const unsub = session.subscribe((e) => {
+    // G-LIV-1: refresh liveness on activity mid-turn. tool_execution PAUSES the
+    // check (agent waits on a tool, not hung); message_end (any role) resets it.
+    // Without this, a multi-second tool or a long generation trips livenessMs
+    // and false-aborts a healthy child (SOTA: LangGraph Runtime.heartbeat).
+    if (e.type === "tool_execution_start") {
+      toolInProgress = true;
+    } else if (e.type === "tool_execution_end") {
+      toolInProgress = false;
+      lastActivity = Date.now();
+    } else if (e.type === "message_end" || e.type === "message_update") {
+      lastActivity = Date.now();
+    }
     if (e.type === "message_end" && e.message.role === "assistant") {
       const text = e.message.content
         .filter((c) => c.type === "text" && typeof (c as any).text === "string")
@@ -144,7 +168,8 @@ export async function runSubagent(
   let livenessTimer: NodeJS.Timeout | null = null;
   if (livenessMs > 0) {
     livenessTimer = setInterval(() => {
-      if (Date.now() - lastActivity >= livenessMs && abortReason === null) {
+      // G-LIV-1: skip while a tool is executing (agent is waiting, not hung).
+      if (!toolInProgress && Date.now() - lastActivity >= livenessMs && abortReason === null) {
         abortReason = "liveness";
         try { session.abort(); } catch { /* swallow */ }
       }

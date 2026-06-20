@@ -12,6 +12,7 @@ import { makeSpawnRoleTool } from "./src/subagent/spawn-role-tool";
 import { makeRoleSessionStartHandler } from "./src/subagent/session-start-handler";
 import { makeAutoCompactHandler } from "./src/subagent/auto-compact-handler";
 import { makeOutputContractEnforcer } from "./src/subagent/output-contract-enforcer";
+import { makeOutputContractProactiveHandler } from "./src/subagent/output-contract-proactive";
 import { makeDagExecuteTool } from "./src/dag/dag-execute-tool";
 import { makeDagResumeTool } from "./src/dag/dag-resume-tool";
 // agent-end-fallback module retained as a potential future same-process
@@ -135,6 +136,16 @@ export default async function (pi: ExtensionAPI): Promise<void> {
       catch (e) { console.error("[pi-roles:output-contract] reminder failed", e); }
     },
   }) as any);
+
+  // G-OUT-2: proactive output-contract enforcement via before_provider_request
+  // (the 2nd path). A CHILD-side handler (the child loads its own pi-roles
+  // instance — decisive fact — so this fires FOR the child). Gates on the
+  // parentSession header (like the enforcer + auto-compact handler); injects
+  // tool_choice:"required" so the model is FORCED to call a tool each turn and
+  // cannot text-only-finish without calling report_role_result. Complements the
+  // reactive P0-4 agent_end enforcer (which stays as the residual safety net).
+  // Verified: before_provider_request supports payload-replace (extensions.md:627).
+  pi.on("before_provider_request", makeOutputContractProactiveHandler() as any);
 
   // NOTE: agent_end fallback removed. The child subagent loads its OWN pi-roles
   // extension instance (createAgentSession re-runs resourceLoader.getExtensions),

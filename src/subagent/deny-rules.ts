@@ -46,6 +46,26 @@ export function extractCommand(toolName: string, input: Record<string, unknown>)
 /** Deny rules: { bash: ["rm *", "git push *"], write: ["*.env"] } */
 export type DenyRules = Record<string, string[]>;
 
+/** G-PERM-1: bash deny-rules are bypassable via shell wrappers (raw-string
+ *  matching: `bash -c 'rm -rf /'` evades `rm *`). No shipped role uses deny-rules
+ *  today (Tier 4 inert), so a user opting in gets SILENT FALSE PROTECTION.
+ *  Approver decision (2026-06-20): WARN-ONLY (not tree-sitter-bash — inert feature
+ *  + a partial normalizer is worse + zero new deps). This returns the loud warning
+ *  text for bash rules, or null when there are none (no false alarm). */
+export function bashBypassWarning(rules: DenyRules): string | null {
+  const patterns = rules["bash"];
+  if (!patterns || patterns.length === 0) return null;
+  return (
+    `[pi-roles:deny-rules] WARNING: bash deny-rules ${JSON.stringify(patterns)} are NOT a security boundary — ` +
+    `shell wrappers evade raw-string matching (e.g. \`bash -c 'rm -rf /'\` bypasses \`rm *\`). ` +
+    `Deny-rules are best-effort; do not rely on them for safety. (G-PERM-1, documented T3-6 limitation)`
+  );
+}
+
+// G-PERM-1: warn once per unique bash-rules-set per process (a role spawned N
+// times should not spam stderr, but the first application must be LOUD).
+const _warnedBashRuleSets = new Set<string>();
+
 /** A minimal Extension object compatible with pi core's ExtensionRunner. */
 export interface MinimalExtension {
   path: string;
@@ -64,6 +84,13 @@ export interface MinimalExtension {
  * Also emits P2-1 tool_use:before / tool_use:after hook events.
  */
 export function createDenyRulesExtension(rules: DenyRules): MinimalExtension {
+  // G-PERM-1: convert silent false-confidence → INFORMED at configuration time
+  // (spawn = when the bypass-vulnerable rules are applied). Loud stderr, once.
+  const _bashWarn = bashBypassWarning(rules);
+  if (_bashWarn) {
+    const _key = JSON.stringify(rules["bash"]);
+    if (!_warnedBashRuleSets.has(_key)) { _warnedBashRuleSets.add(_key); console.error(_bashWarn); }
+  }
   const toolCallHandler = async (event: { toolName: string; input: Record<string, unknown> }, _ctx: unknown) => {
     // P2-1: emit tool_use:before hook
     try {
