@@ -44,6 +44,8 @@ export class SubagentsService {
   private cwd: string;
   private agentDir: string;
   private handles = new Map<string, RunHandle>();
+  /** P0-2 tree abort: parentSessionId → set of child agent IDs. */
+  private children = new Map<string, Set<string>>();
   private archiveSession: (sessionFile: string) => void;
 
   constructor(deps: SpawnDeps, env: { cwd: string; agentDir: string; archiveSession?: (sessionFile: string) => void }) {
@@ -72,6 +74,13 @@ export class SubagentsService {
       this.registry.reject(id, err instanceof Error ? err : new Error(String(err)));
     });
 
+    // P0-2: track parent→child relationship for tree abort.
+    if (params.parentSessionId) {
+      let sib = this.children.get(params.parentSessionId);
+      if (!sib) { sib = new Set(); this.children.set(params.parentSessionId, sib); }
+      sib.add(id);
+    }
+
     return id;
   }
 
@@ -83,13 +92,25 @@ export class SubagentsService {
     return this.registry.waitForResult(id);
   }
 
-  /** Abort a running subagent. Returns true if a run was signalled to abort. */
+  /** Abort a running subagent AND all its descendants (P0-2 tree abort).
+   *  Returns true if at least one agent was signalled to abort. */
   abort(id: string): boolean {
-    const h = this.handles.get(id);
-    if (!h) return false;
-    if (h.abortController.signal.aborted) return false;
-    h.abortController.abort();
-    return true;
+    let any = false;
+    // Depth-limited tree walk — abort children recursively.
+    const visited = new Set<string>();
+    const walk = (nodeId: string) => {
+      if (visited.has(nodeId)) return; // guard against cycles
+      visited.add(nodeId);
+      const h = this.handles.get(nodeId);
+      if (h && !h.abortController.signal.aborted) {
+        h.abortController.abort();
+        any = true;
+      }
+      const kids = this.children.get(nodeId);
+      if (kids) for (const c of kids) walk(c);
+    };
+    walk(id);
+    return any;
   }
 
   /** Returns {abort} for the given agent id, or undefined if not found. */
