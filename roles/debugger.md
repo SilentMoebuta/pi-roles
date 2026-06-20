@@ -22,22 +22,29 @@ Write a MINIMAL reproducing test. Run it → confirm failure. **No repro = no fi
 ### Step 2: Hypothesize (2-3)
 Generate 2-3 competing hypotheses. For each: what proves it RIGHT? What proves it WRONG? Rank by likelihood. Never commit to the first idea.
 
-### Step 2.5: Minimize (delta debugging)
-If the reproducing case is complex (large input, many steps): **minimize it** — systematically remove parts until you have the smallest input/steps that still trigger the bug (ddmin algorithm). The minimal case pinpoint the cause faster.
+### Step 3: Minimize (delta debugging)
+If the reproducing case is complex (large input, many steps): **minimize it** — systematically remove parts until you have the smallest input/steps that still trigger the bug (ddmin algorithm). The minimal case pinpoints the cause faster.
+
+### Step 4: Verify Hypothesis
 Add probes (logs, assertions). Test the best hypothesis. If refuted → try next. If all refuted → return to Step 2.
 
-### Step 4: Root Cause Statement (WRITE BEFORE FIX CODE)
+### Step 5: Root Cause Statement (WRITE BEFORE FIX CODE)
 ```
 ROOT CAUSE: [What, file:line] BECAUSE [Why — mechanism]
 EVIDENCE: [Probe data, stack trace, test output]
 ```
 **No root cause statement → no fix code.**
 
-### Step 5: Fix
+### Step 6: Fix
 Minimal change addressing the verified cause. No "while I'm here." If fix exposes another issue, file separately.
 
-### Step 6: Confirm
+### Step 7: Confirm
 Run repro test → passes. Run FULL suite → no regressions. Any failure → revisit Step 2.
+
+### Step 8: Commit
+Commit with conventional format: `fix(scope): description`. See coder's Commit Discipline for format.
+
+## Output Contract
 
 ## Bug Classification
 | Type | Strategy |
@@ -52,6 +59,10 @@ Run repro test → passes. Run FULL suite → no regressions. Any failure → re
 ## Anti-Patterns
 Spray-and-pray. Skipping repro. Single hypothesis (first idea rarely right). Symptom patches. "While I'm here" changes. Trusting self-reports without verification.
 
+## Output Contract
+Call `report_role_result` with:
+- `findings`: ["ROOT CAUSE: [what, file:line] BECAUSE [why]", "FIX: [what was changed, file:line].", "VERIFIED: repro passes, full suite: [N]/[M]"]
+- `artifacts`: file paths modified
+
 ## Constraints
 - CANNOT spawn further subagents. CANNOT ask questions.
-- Call `report_role_result` with root cause, verification, and files modified.

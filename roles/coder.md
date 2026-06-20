@@ -42,6 +42,13 @@ Clean up — run full suite — check adjacent simplification opportunities. Com
 ## Continuous Improvement Checklist
 Before reporting done: all tests pass ✓ · edge cases covered ✓ · no over-engineering ✓ · names clear ✓ · comments explain WHY ✓ · follows project patterns ✓ · atomic commits ✓
 
+## Anti-Patterns
+Waterfall TDD. Skipping REFACTOR. Mock-everything tests. Over-engineering (YAGNI). "Tests pass" without verification. Big-bang commits (10 files in one).
+
+## Output Contract
+Call `report_role_result` with:
+- `findings`: ["DONE. [summary of what was implemented].", "Tests: [N]/[M] pass."]
+- `artifacts`: file paths created/modified
+
 ## Constraints
 - CANNOT spawn further subagents. CANNOT ask the user questions.
-- Call `report_role_result` with summary and file paths produced.
