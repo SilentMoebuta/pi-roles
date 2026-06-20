@@ -18,16 +18,24 @@ const Params = Type.Object({
 });
 
 export function makeDagResumeTool(deps: DagExecuteDeps) {
-  // Reuse the SpawnFn builder from dag_execute (same role-resolution logic).
-  const spawnFn = buildSpawnFn(deps);
-
   return defineTool({
     name: "dag_resume",
     label: "Resume DAG",
     description: "Resume a DAG from a serialized checkpoint — skip already-completed waves and continue with prior results preserved.",
     parameters: Params,
-    async execute(_toolCallId: string, params: { checkpoint: string; maxConcurrent?: number }, _signal, _onUpdate, _ctx) {
+    async execute(_toolCallId: string, params: { checkpoint: string; maxConcurrent?: number }, signal, _onUpdate, _ctx) {
       const cp = deserializeCheckpoint(params.checkpoint);
+      // C4 fix (HIGH): build spawnFn INSIDE execute with the tool AbortSignal +
+      // ctx.modelRegistry + caller sessionFile — parity with dag_execute (T1-4).
+      // Previously built ONCE at registration with NO opts → resumed children got
+      // no model resolution, no abort forwarding, no tree-abort membership (silent
+      // functional regression; the old test's fake service didn't track these).
+      const ctx = _ctx as any;
+      const spawnFn = buildSpawnFn(deps, {
+        modelRegistry: ctx?.modelRegistry,
+        signal,
+        getCallerSessionFile: () => ctx?.sessionManager?.getSessionFile?.(),
+      });
       const result = await resumeDAG(cp, spawnFn);
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: result };
     },

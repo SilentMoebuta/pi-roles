@@ -15,8 +15,8 @@ import { makeOutputContractEnforcer } from "./src/subagent/output-contract-enfor
 import { makeOutputContractProactiveHandler } from "./src/subagent/output-contract-proactive";
 import { makeDagExecuteTool } from "./src/dag/dag-execute-tool";
 import { makeDagResumeTool } from "./src/dag/dag-resume-tool";
-// agent-end-fallback module retained as a potential future same-process
-// defense, but not wired (child sessions have their own extension instance).
+// (agent-end-fallback module removed C5 — dead code, not wired; the child loads
+// its own extension instance so a same-process fallback was never reachable.)
 
 // ESM: __dirname is undefined under "type":"module". Derive from import.meta.url.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -98,7 +98,8 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 
   // before_agent_start: persona injection — DESCOPED (no criterion mandates it).
   // Role-session detection + persona injection is future multi-roles work.
-  pi.on("before_agent_start", () => undefined);
+  // (C5: the no-op pi.on handler was removed — registering () => undefined is
+  // redundant; pi behaves identically without it.)
 
   // session_start (A-fix): for role sessions (parentSession present), additively
   // add report_role_result to active tools. Root cause: createAgentSession applies
@@ -127,12 +128,13 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // P0-4: proactive output-contract enforcement (hybrid). A CHILD-side agent_end
   // handler (the child loads its own pi-roles instance — decisive fact — so this
   // fires FOR the child). Scans event.messages for a report_role_result toolCall;
-  // if absent & retries<2, sends a reminder via sendUserMessage(deliverAs:'steer',
-  // triggerTurn:true) so the child gets another turn. extractReportPayload stays
-  // as the reactive fallback (scans on settle). Bounded by maxRetries=2.
+  // if absent & retries<2, sends a reminder via sendUserMessage(deliverAs:'steer')
+  // — sendUserMessage always triggers a turn (extensions.md:1359) so the child
+  // gets another turn. extractReportPayload stays as the reactive fallback (scans
+  // on settle). Bounded by maxRetries=2.
   pi.on("agent_end", makeOutputContractEnforcer({
     sendReminder: (text) => {
-      try { pi.sendUserMessage(text, { deliverAs: "steer", triggerTurn: true } as any); }
+      try { pi.sendUserMessage(text, { deliverAs: "steer" }); }
       catch (e) { console.error("[pi-roles:output-contract] reminder failed", e); }
     },
   }) as any);
@@ -157,8 +159,8 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // {findings, artifacts} arguments directly (no cross-session state needed).
 
   // resources_discover: per-role skill isolation — DESCOPED (no criterion mandates it).
-  // Returning undefined leaves pi's default skill discovery unchanged.
-  pi.on("resources_discover", () => undefined);
+  // (C5: the no-op pi.on handler was removed — returning undefined is redundant;
+  // pi's default skill discovery is unchanged.)
 
   // T3-2: piggyback service.cleanup() on the MAIN session's agent_end (fires
   // after each top-level prompt) to free terminal records + archived session files
