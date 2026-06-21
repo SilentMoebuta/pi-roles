@@ -15,6 +15,7 @@ import { makeOutputContractEnforcer } from "./src/subagent/output-contract-enfor
 import { makeOutputContractProactiveHandler } from "./src/subagent/output-contract-proactive";
 import { makeDagExecuteTool } from "./src/dag/dag-execute-tool";
 import { makeDagResumeTool } from "./src/dag/dag-resume-tool";
+import { registerPmCommands } from "./src/pm-commands";
 // (agent-end-fallback module removed C5 — dead code, not wired; the child loads
 // its own extension instance so a same-process fallback was never reachable.)
 
@@ -95,6 +96,10 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     cwd: dagCwd,
     agentDir: dagAgentDir,
   }) as any);
+
+  // PM role commands (Step 4): register /pm-* slash commands that drive
+  // spawn_role(pm, task-with-skill) per option A'.
+  registerPmCommands(pi);
 
   // before_agent_start: persona injection — DESCOPED (no criterion mandates it).
   // Role-session detection + persona injection is future multi-roles work.
