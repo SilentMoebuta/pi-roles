@@ -24,6 +24,7 @@ import type { ReportState } from "../report-tool";
 import { makeReportTool } from "../report-tool";
 import { DEFAULT_REPORT_SCHEMA } from "../contract";
 import { makeRoleSkillsOverride } from "./skills-override";
+import { discoverRoleSkillDirs } from "./role-skills-discovery";
 
 // Resolves a role frontmatter model reference (bare id 'deepseek-v4-flash' or
 // 'provider/modelId') to a Model object using the tool execution context's
@@ -188,13 +189,18 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
 
       // Load the role's domain skills from role-specific skill directories.
       // Uses pi's public loadSkillsFromDir (ESM: __dirname is undefined; use import.meta.url).
+      // PM-CORE-1: dynamic scan replaces the hardcoded 5-role array — any
+      // roles/*-skills/ dir is auto-discovered (pm-skills, future roles).
       const _thisDir = path.dirname(fileURLToPath(import.meta.url));
-      const roleSkillsDirs = ["researcher-skills", "planner-skills", "reviewer-skills", "coder-skills", "debugger-skills"];
+      const rolesRoot = path.resolve(_thisDir, "..", "..", "roles");
+      const roleSkillsDirs = discoverRoleSkillDirs(rolesRoot);
       const allSkills: Skill[] = [];
       for (const d of roleSkillsDirs) {
         const dir = path.resolve(_thisDir, "..", "..", "roles", d);
-        const { skills } = loadSkillsFromDir({ dir, source: "pi-roles-roles" });
-        allSkills.push(...skills);
+        try {
+          const { skills } = loadSkillsFromDir({ dir, source: "pi-roles-roles" });
+          allSkills.push(...skills);
+        } catch { /* no skills dir — skip */ }
       }
       const domainSkills: Skill[] = allSkills.filter((s) => role.skills.includes(s.name));
 

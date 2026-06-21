@@ -16,6 +16,7 @@ import * as os from "node:os";
 import { fileURLToPath } from "node:url";
 import { executeDAGCore, type SpawnFn } from "./executor";
 import { resolveModelRef } from "../subagent/spawn-role-tool";
+import { discoverRoleSkillDirs } from "../subagent/role-skills-discovery";
 import type { DAGSpec, NodePayload } from "./types";
 import type { RoleDef } from "../roles";
 import type { ReportState } from "../report-tool";
@@ -60,7 +61,9 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
   const { roleRegistry, service, cwd, agentDir } = deps;
   const { modelRegistry, signal, getCallerSessionFile } = opts;
   const _thisDir = path.dirname(fileURLToPath(import.meta.url));
-  const roleSkillsDirs = ["researcher-skills", "planner-skills", "reviewer-skills", "coder-skills", "debugger-skills"];
+  // PM-CORE-1: dynamic scan replaces the hardcoded 5-role array.
+  const rolesRoot = path.resolve(_thisDir, "..", "..", "roles");
+  const roleSkillsDirs = discoverRoleSkillDirs(rolesRoot);
   const allSkills: Skill[] = [];
   for (const d of roleSkillsDirs) {
     const dir = path.resolve(_thisDir, "..", "..", "roles", d);
