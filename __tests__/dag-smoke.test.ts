@@ -7,7 +7,7 @@ import type { DAGSpec } from "../src/dag/types";
 // immediately; wait() polls a shared registry that settles async. This mirrors
 // src/subagent/service.ts spawn()/waitForResult() without needing a live pi runtime.
 function serviceShapedSpawn(runTable: Record<string, { status: "completed" | "failed"; result?: { findings: string[]; artifacts: string[] }; error?: string }>): SpawnFn {
-  const calls: { role: string; task: string }[] = [];
+  const calls: { role: string | undefined; task: string }[] = [];
   return async (role, task) => {
     calls.push({ role, task });
     const m = task.match(/\[node:([^\]]+)\]/);

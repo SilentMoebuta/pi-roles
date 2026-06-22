@@ -8,7 +8,7 @@
 pi-roles provides a **multi-role subagent orchestration layer** for pi:
 
 - **`spawn_role`** — spawn a role-scoped subagent (researcher, coder, reviewer, planner, debugger) with persona injection, tool whitelist, step limit, model override, and depth-limited recursion.
-- **`dag_execute`** — execute a DAG of subagent roles with topological waves, parallel spawn per wave, `Promise.allSettled` barrier (partial failure isolation), result aggregation, and upstream-data injection.
+- **`dag_execute`** — execute a DAG of subagent roles with topological waves, parallel spawn per wave, `Promise.allSettled` barrier (partial failure isolation), result aggregation, and upstream-data injection. The `role` field on each node is **optional** — omit it for a default subagent that inherits the full tool set with no persona/skill injection, useful for simple tasks that don't need a specialized role. Mixed DAGs (some nodes with a role, some without) are allowed.
 - **`dag_resume`** — resume a DAG from a serialized checkpoint (skip completed waves, preserve prior results).
 - **`report_role_result`** — output-contract tool every role must call once; structured `{findings, artifacts}` payload extracted by the service from child session messages.
 

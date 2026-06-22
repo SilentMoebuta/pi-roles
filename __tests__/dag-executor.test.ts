@@ -5,7 +5,7 @@ import type { DAGSpec } from "../src/dag/types";
 
 // Fake spawnFn: completes after a tick. Configurable per-node outcome.
 function fakeSpawn(outcomes: Record<string, { status: "completed" | "failed"; result?: { findings: string[]; artifacts: string[] }; error?: string }>): SpawnFn {
-  return async (role: string, task: string) => {
+  return async (role: string | undefined, task: string) => {
     // derive nodeId from task marker "[node:<id>]" injected by test specs
     const m = task.match(/\[node:([^\]]+)\]/);
     const nodeId = m ? m[1] : task;

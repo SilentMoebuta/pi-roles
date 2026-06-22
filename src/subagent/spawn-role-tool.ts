@@ -41,7 +41,7 @@ export function resolveModelRef(modelRef: string, registry: { getAll(): any[]; f
 
 export interface SpawnToolService {
   spawn(params: {
-    role: string;
+    role?: string;
     task: string;
     parentSessionId?: string;
     tools?: string[];

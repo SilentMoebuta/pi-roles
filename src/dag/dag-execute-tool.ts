@@ -28,7 +28,7 @@ import type { SpawnToolService } from "../subagent/spawn-role-tool";
 const Params = Type.Object({
   spec: Type.Object({
     nodes: Type.Record(Type.String(), Type.Object({
-      role: Type.String(),
+      role: Type.Optional(Type.String({ description: "Role name (from role catalog). Optional — omit for a default subagent that inherits the full tool set with no persona/skill injection. Mixed DAGs (some nodes with role, some without) are allowed." })),
       task: Type.String(),
       depends_on: Type.Optional(Type.Array(Type.String())),
     })),
@@ -73,9 +73,9 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
     } catch { /* no skills dir — skip */ }
   }
 
-  return async (roleName, task) => {
-    const role = roleRegistry.get(roleName);
-    // If role unknown, spawn with defaults (service.spawn handles missing role gracefully).
+  return async (roleName: string | undefined, task) => {
+    const role = roleName ? roleRegistry.get(roleName) : undefined;
+    // If role unknown or omitted, spawn with defaults: full tool set + no persona.
     const childTools = role
       ? Array.from(new Set([...role.tools, "report_role_result"]))
       : ["read", "bash", "write", "edit", "grep", "find", "ls", "report_role_result"];
@@ -93,7 +93,7 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
 
     // Per-node ReportState — isolated so one child's payload doesn't pollute another's.
     const childReportState: ReportState = { reported: new Set(), activeRole: new Map(), payloads: new Map() };
-    const childReportTool = makeReportTool({ state: childReportState, schema: role?.outputSchema ?? DEFAULT_REPORT_SCHEMA, failedStep: roleName });
+    const childReportTool = makeReportTool({ state: childReportState, schema: role?.outputSchema ?? DEFAULT_REPORT_SCHEMA, failedStep: roleName ?? "default" });
     // T1-4: resolve the role's model via ctx.modelRegistry (was hardcoded undefined).
     const modelRef = role?.model;
     const resolvedModel = modelRef && modelRegistry ? resolveModelRef(modelRef, modelRegistry) : undefined;
@@ -112,7 +112,7 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
       customTools: [childReportTool],
       signal, // T1-4: forward the tool AbortSignal so a mid-DAG abort reaches in-flight children
       onSessionCreated: (sessionFile, rn) => {
-        deps.reportState.activeRole.set(sessionFile, rn);
+        if (roleName) deps.reportState.activeRole.set(sessionFile, rn);
         console.error(`[pi-roles:dag] recorded activeRole[${sessionFile}]=${rn}`);
       },
     });

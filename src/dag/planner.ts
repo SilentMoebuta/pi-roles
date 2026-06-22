@@ -4,7 +4,7 @@ import type { DAGSpec } from "./types";
 
 export interface PlannedNode {
   id: string;
-  role: string;
+  role?: string;
   task: string;
   deps: string[];
   /** Phase 5c: carried from DAGNode.dynamic so the executor can fan out. */

@@ -2,7 +2,11 @@
 // Mirrors docs/superpowers/specs/2026-06-20-pi-roles-phase5-complete-design.md.
 
 export interface DAGNode {
-  role: string;
+  /** Optional role. When omitted, the executor spawns a default subagent
+   *  that inherits the full tool set with no persona/skill injection — useful
+   *  for simple tasks that don't need a specialized role. Mixed DAGs (some
+   *  nodes with role, some without) are allowed. */
+  role?: string;
   task: string;
   depends_on?: string[];
   /** Phase 5c: if set, this node is a DynamicNode — instead of a fixed

@@ -26,7 +26,7 @@ export interface SpawnHandle {
   }>;
 }
 
-export type SpawnFn = (role: string, task: string) => Promise<SpawnHandle>;
+export type SpawnFn = (role: string | undefined, task: string) => Promise<SpawnHandle>;
 
 /** Internal options shared by executeDAG and resumeDAG (5e delegates to core). */
 interface ExecuteOptions {

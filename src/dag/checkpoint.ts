@@ -51,7 +51,7 @@ export function makeCheckpoint(spec: DAGSpec, completedWaves: WaveResult[]): DAG
  */
 export async function resumeDAG(
   checkpoint: DAGCheckpoint,
-  spawnFn: (role: string, task: string) => Promise<{ agentId: string; wait: () => Promise<any> }>,
+  spawnFn: (role: string | undefined, task: string) => Promise<{ agentId: string; wait: () => Promise<any> }>,
 ): Promise<DAGResult> {
   const { spec, completedWaves } = checkpoint;
   const allWaves = planWaves(spec);
