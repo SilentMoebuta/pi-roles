@@ -214,5 +214,60 @@ describe("role-commands", () => {
       const { deps } = makeDeps();
       registerRoleCommands({} as any, deps); // must not throw
     });
+
+    describe("getArgumentCompletions", () => {
+      function getCompletor(roles = ALL_ROLES) {
+        const { deps } = makeDeps(roles);
+        let opts: any = null;
+        const mockPi: any = { registerCommand: (_name: string, o: any) => { opts = o; } };
+        registerRoleCommands(mockPi, deps);
+        assert.ok(opts?.getArgumentCompletions, "getArgumentCompletions registered");
+        return opts.getArgumentCompletions as (prefix: string) => { value: string; label: string; description?: string }[] | null;
+      }
+      it("empty prefix returns clear + all roles sorted", () => {
+        const complete = getCompletor();
+        const items = complete("")!;
+        assert.equal(items.length, 7, "clear + 6 roles");
+        assert.equal(items[0].value, "clear");
+        // roles sorted after clear (clear is the destructive opt-in, listed first)
+        assert.deepEqual(items.map(i => i.value), ["clear", "coder", "debugger", "planner", "pm", "researcher", "reviewer"]);
+      });
+      it("prefix filters to matching roles only", () => {
+        const complete = getCompletor();
+        const items = complete("re")!;
+        assert.deepEqual(items.map(i => i.value), ["researcher", "reviewer"]);
+      });
+      it("prefix 'p' matches planner + pm (not clear)", () => {
+        const complete = getCompletor();
+        const items = complete("p")!;
+        assert.deepEqual(items.map(i => i.value).sort(), ["planner", "pm"]);
+      });
+      it("prefix 'c' matches clear + coder", () => {
+        const complete = getCompletor();
+        const items = complete("c")!;
+        assert.deepEqual(items.map(i => i.value).sort(), ["clear", "coder"]);
+      });
+      it("prefix that matches nothing returns null (TUI shows no popup)", () => {
+        const complete = getCompletor();
+        assert.equal(complete("zzz"), null);
+      });
+      it("each role item carries its description from the registry", () => {
+        const complete = getCompletor();
+        const items = complete("pm")!;
+        const pm = items.find(i => i.value === "pm")!;
+        assert.equal(pm.description, "pm role", "description from RoleDef.description");
+      });
+      it("clear item has a description explaining revert", () => {
+        const complete = getCompletor();
+        const items = complete("")!;
+        const clear = items.find(i => i.value === "clear")!;
+        assert.ok(clear.description && /revert|default/i.test(clear.description), "clear describes revert");
+      });
+      it("completions reflect the actual registry (derived, no hardcoded drift)", () => {
+        const complete = getCompletor(["coder", "reviewer"]);
+        const items = complete("")!;
+        assert.deepEqual(items.map(i => i.value), ["clear", "coder", "reviewer"]);
+      });
+    });
   });
 });

@@ -128,6 +128,25 @@ export function registerRoleCommands(pi: ExtensionAPI, deps: RoleCommandDeps): v
   if (typeof register !== "function") return; // mock pi — skip (loader test)
   register.call(pi, "role", {
     description: "Switch the main agent's persona to a role (/role <name>), revert (/role clear), or show current (/role).",
+    // pi TUI calls this when the user types `/role <prefix>` and shows the
+    // returned items as a fuzzy-filterable candidate list (interactive-mode.js
+    // wraps with fuzzyFilter). So the "search bar" UX is built in — we just
+    // supply the items. clear is listed first (the destructive opt-in), then
+    // roles sorted alphabetically. Descriptions come from each role's
+    // frontmatter so the list stays in sync with roles/*.md automatically.
+    getArgumentCompletions: (prefix: string) => {
+      const items = [
+        { value: "clear", label: "clear", description: "Revert to default persona" },
+        ...availableRoles(deps).map(name => ({
+          value: name,
+          label: name,
+          description: deps.roleRegistry.get(name)?.description,
+        })),
+      ];
+      const filtered = items.filter(c => c.value.startsWith(prefix));
+      // null = no popup (matches /model's convention when nothing matches).
+      return filtered.length === 0 ? null : filtered;
+    },
     handler: async (args: string, ctx: CommandCtx) => {
       handleRoleCommand(args, ctx ?? {}, deps);
     },
