@@ -16,6 +16,8 @@ import { makeOutputContractProactiveHandler } from "./src/subagent/output-contra
 import { makeDagExecuteTool } from "./src/dag/dag-execute-tool";
 import { makeDagResumeTool } from "./src/dag/dag-resume-tool";
 import { registerPmCommands } from "./src/pm-commands";
+import { registerRoleCommands } from "./src/role-commands";
+import { buildRolePersonaPrompt, parseActiveRoleFromBranch } from "./src/active-role";
 // (agent-end-fallback module removed C5 — dead code, not wired; the child loads
 // its own extension instance so a same-process fallback was never reachable.)
 
@@ -101,10 +103,50 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // spawn_role(pm, task-with-skill) per option A'.
   registerPmCommands(pi);
 
-  // before_agent_start: persona injection — DESCOPED (no criterion mandates it).
-  // Role-session detection + persona injection is future multi-roles work.
-  // (C5: the no-op pi.on handler was removed — registering () => undefined is
-  // redundant; pi behaves identically without it.)
+  // /role: in-place main-agent persona switching. The main agent adopts a
+  // role's persona (preamble + role.md body) via before_agent_start injection,
+  // persisted as a `pi-roles:active-role` session entry (append-only, last-wins).
+  // `/role <name>` sets, `/role clear` reverts, `/role` shows current. No
+  // subagent spawn, no tool/model/thinkingLevel changes. Mirrors pi-goal's
+  // appendEntry/getBranch/before_agent_start pattern (pi-goal index.ts:563,618,880).
+  // Children load their own pi-roles instance whose closure activeRole starts
+  // null and whose branch has no pi-roles:active-role entries → no double-injection.
+  let activeRole: string | null = null;
+
+  // before_agent_start: inject the active role's persona into the MAIN session's
+  // systemPrompt every turn. Returning undefined when no role is active means the
+  // main agent reverts to its default persona naturally — no snapshot stored
+  // (before_agent_start fires every turn; not-injecting = revert).
+  // Role persona chains AFTER pi-goal governance + superpowers because this
+  // handler runs in the extension chain after those extensions (load order); an
+  // active pi-goal does NOT block role switching (the two are orthogonal).
+  pi.on("before_agent_start", async (event) => {
+    if (!activeRole) return;
+    const role = roleRegistry.get(activeRole);
+    if (!role) return;
+    return { systemPrompt: event.systemPrompt + buildRolePersonaPrompt(role) };
+  });
+
+  // session_start + session_tree: reconstruct activeRole from the session branch
+  // so it survives reload/compaction/tree-switch. Guard against subagent sessions
+  // (defensive — children load their own instance, but the guard is cheap and
+  // matches pi-goal's isSubagentSession short-circuit).
+  const reconstructActiveRole = (ctx: any): void => {
+    if (ctx?.sessionManager?.getHeader?.()?.parentSession) return;
+    try {
+      activeRole = parseActiveRoleFromBranch(ctx.sessionManager.getBranch() as any[]);
+    } catch { /* best-effort */ }
+  };
+  pi.on("session_start", async (_event, ctx) => { reconstructActiveRole(ctx); });
+  pi.on("session_tree", async (_event, ctx) => { reconstructActiveRole(ctx); });
+
+  registerRoleCommands(pi, {
+    roleRegistry,
+    getActiveRole: () => activeRole,
+    setActiveRole: (r) => { activeRole = r; },
+    appendEntry: (ct, data) => pi.appendEntry(ct, data),
+    sendMessage: (msg, opts) => pi.sendMessage(msg as any, opts as any),
+  });
 
   // session_start (A-fix): for role sessions (parentSession present), additively
   // add report_role_result to active tools. Root cause: createAgentSession applies

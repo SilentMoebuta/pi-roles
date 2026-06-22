@@ -12,6 +12,14 @@ pi-roles provides a **multi-role subagent orchestration layer** for pi:
 - **`dag_resume`** — resume a DAG from a serialized checkpoint (skip completed waves, preserve prior results).
 - **`report_role_result`** — output-contract tool every role must call once; structured `{findings, artifacts}` payload extracted by the service from child session messages.
 
+### In-place persona switching (main agent)
+
+- **`/role <name>`** — adopt a role's persona **in the main session** (no subagent spawn). The role's prompt body is injected into every turn's system prompt via `before_agent_start`, persisted as a `pi-roles:active-role` session entry (append-only, last-wins). Useful for deep, open-ended conversation in a role's voice (e.g. `/role pm` to think through product direction with you).
+- **`/role clear`** — revert to the default persona (next turn stops injecting; no snapshot stored). A `display:false` transition steer acknowledges the prior role context for continuity.
+- **`/role`** — show the currently active role (or `none`).
+
+Persona injection only — the main session's tools / model / thinkingLevel are **not** changed, and role `*-skills/` directories are **not** loaded (those require a reload; for a role's full skill flow use `spawn_role` or the `/pm-*` commands). When switching with context usage ≥ 70%, a non-blocking reminder suggests starting a fresh conversation. This is orthogonal to an active `/goal` — both can run together.
+
 Self-written execution layer — no dependency on `@gotgenes/pi-subagents` (replaced with own `SubagentsService`, `SubagentRegistry`, `SubagentState`).
 
 ## Architecture
@@ -44,6 +52,8 @@ src/
   contract.ts         — validateReport, buildStructuredError (output-contract schema)
   report-tool.ts      — makeReportTool (report_role_result definition)
   roles.ts            — parseRoleFrontmatter (from roles/*.md)
+  active-role.ts      — pure helpers for /role (persona prompt builder, branch parser)
+  role-commands.ts    — /role command (switch/clear/show + context reminder)
 roles/
   coder.md            — read/bash/write/edit/grep/find/ls
   reviewer.md         — read/bash/grep/find/ls
