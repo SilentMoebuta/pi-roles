@@ -15,6 +15,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
 import { executeDAGCore, type SpawnFn } from "./executor";
+import { validateDAG } from "./validate";
 import { resolveModelRef, buildInlineRole, type InlineRoleDef } from "../subagent/spawn-role-tool";
 import { discoverRoleSkillDirs } from "../subagent/role-skills-discovery";
 import type { DAGSpec, NodePayload } from "./types";
@@ -183,6 +184,14 @@ export function makeDagExecuteTool(deps: DagExecuteDeps) {
             onUpdate({ content: [{ type: "text" as const, text: `DAG wave ${p.currentWave + 1}/${p.totalWaves} (${nodeCount} nodes) running...` }], details: undefined });
           }
         : undefined;
+      // Pre-flight validation: catch bad depends_on refs / unreachable nodes before
+      // executing, so DAG spec errors surface immediately instead of silently
+      // dropping nodes (chief-reviewer scheduling bug, P0).
+      const validation = validateDAG(spec);
+      if (!validation.ok) {
+        return { content: [{ type: "text" as const, text: JSON.stringify({ status: "error", errors: validation.errors }) }], details: { status: "error", errors: validation.errors } };
+      }
+
       const result = await executeDAGCore(spec, spawnFn, { maxConcurrent: params.maxConcurrent, onProgress, signal });
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: result };
     },
