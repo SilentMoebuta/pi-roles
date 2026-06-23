@@ -1,12 +1,19 @@
 // Phase 5b/5d types — DAG spec, wave/node results, error context, aggregate result.
 // Mirrors docs/superpowers/specs/2026-06-20-pi-roles-phase5-complete-design.md.
 
+import type { InlineRoleDef } from "../subagent/spawn-role-tool";
+
 export interface DAGNode {
   /** Optional role. When omitted, the executor spawns a default subagent
    *  that inherits the full tool set with no persona/skill injection — useful
    *  for simple tasks that don't need a specialized role. Mixed DAGs (some
    *  nodes with role, some without) are allowed. */
   role?: string;
+  /** Inline role definition for ad-hoc expert dispatch (cce V4-style dynamic
+   *  experts). Mutually exclusive with `role`. When set, the executor builds
+   *  an ad-hoc RoleDef (no disk file, no skills) and spawns it directly —
+   *  bypassing the role registry. Safe defaults: canSpawn=false, skills=[]. */
+  roleDef?: InlineRoleDef;
   task: string;
   depends_on?: string[];
   /** Phase 5c: if set, this node is a DynamicNode — instead of a fixed

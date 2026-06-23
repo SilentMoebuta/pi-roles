@@ -15,7 +15,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
 import { executeDAGCore, type SpawnFn } from "./executor";
-import { resolveModelRef } from "../subagent/spawn-role-tool";
+import { resolveModelRef, buildInlineRole, type InlineRoleDef } from "../subagent/spawn-role-tool";
 import { discoverRoleSkillDirs } from "../subagent/role-skills-discovery";
 import type { DAGSpec, NodePayload } from "./types";
 import type { RoleDef } from "../roles";
@@ -28,7 +28,17 @@ import type { SpawnToolService } from "../subagent/spawn-role-tool";
 const Params = Type.Object({
   spec: Type.Object({
     nodes: Type.Record(Type.String(), Type.Object({
-      role: Type.Optional(Type.String({ description: "Role name (from role catalog). Optional — omit for a default subagent that inherits the full tool set with no persona/skill injection. Mixed DAGs (some nodes with role, some without) are allowed." })),
+      role: Type.Optional(Type.String({ description: "Role name (from role catalog). Mutually exclusive with roleDef. Optional — omit for a default subagent that inherits the full tool set with no persona/skill injection. Mixed DAGs (some nodes with role, some without, some with roleDef) are allowed." })),
+      roleDef: Type.Optional(Type.Object({
+        name: Type.String(),
+        description: Type.String(),
+        prompt: Type.String(),
+        tools: Type.Array(Type.String()),
+        maxTurns: Type.Optional(Type.Number()),
+        canSpawn: Type.Optional(Type.Boolean()),
+        model: Type.Optional(Type.String()),
+        thinkingLevel: Type.Optional(Type.String()),
+      }, { description: "Inline role definition for ad-hoc expert dispatch (cce V4-style). No disk file. Mutually exclusive with role. Safe defaults: canSpawn=false, skills=[]." })),
       task: Type.String(),
       depends_on: Type.Optional(Type.Array(Type.String())),
     })),
@@ -73,8 +83,9 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
     } catch { /* no skills dir — skip */ }
   }
 
-  return async (roleName: string | undefined, task) => {
-    const role = roleName ? roleRegistry.get(roleName) : undefined;
+  return async (roleName: string | undefined, task, roleDef?: InlineRoleDef) => {
+    const role = roleDef ? buildInlineRole(roleDef) : (roleName ? roleRegistry.get(roleName) : undefined);
+    const effectiveName = role?.name ?? roleName; // roleDef.name for inline, roleName for registry, undefined for default
     // If role unknown or omitted, spawn with defaults: full tool set + no persona.
     const childTools = role
       ? Array.from(new Set([...role.tools, "report_role_result"]))
@@ -93,7 +104,7 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
 
     // Per-node ReportState — isolated so one child's payload doesn't pollute another's.
     const childReportState: ReportState = { reported: new Set(), activeRole: new Map(), payloads: new Map() };
-    const childReportTool = makeReportTool({ state: childReportState, schema: role?.outputSchema ?? DEFAULT_REPORT_SCHEMA, failedStep: roleName ?? "default" });
+    const childReportTool = makeReportTool({ state: childReportState, schema: role?.outputSchema ?? DEFAULT_REPORT_SCHEMA, failedStep: effectiveName ?? "default" });
     // T1-4: resolve the role's model via ctx.modelRegistry (was hardcoded undefined).
     const modelRef = role?.model;
     const resolvedModel = modelRef && modelRegistry ? resolveModelRef(modelRef, modelRegistry) : undefined;
@@ -101,7 +112,7 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
     const callerSessionFile = getCallerSessionFile?.();
 
     const id = service.spawn({
-      role: roleName,
+      role: effectiveName,
       task,
       parentSessionId: callerSessionFile, // T1-4: was undefined — DAG nodes now join the abort tree
       tools: childTools,
@@ -112,7 +123,7 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
       customTools: [childReportTool],
       signal, // T1-4: forward the tool AbortSignal so a mid-DAG abort reaches in-flight children
       onSessionCreated: (sessionFile, rn) => {
-        if (roleName) deps.reportState.activeRole.set(sessionFile, rn);
+        if (effectiveName) deps.reportState.activeRole.set(sessionFile, rn);
         console.error(`[pi-roles:dag] recorded activeRole[${sessionFile}]=${rn}`);
       },
     });

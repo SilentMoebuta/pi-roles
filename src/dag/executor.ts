@@ -11,6 +11,7 @@ import { aggregateWaves, errorContextPrefix, upstreamResultsPrefix } from "./sta
 import { fanOutSends } from "./send";
 import type { DynamicNodeContext } from "./send";
 import { sendToTask, type Send } from "./send";
+import type { InlineRoleDef } from "../subagent/spawn-role-tool";
 
 export type SpawnOutcomeStatus = "completed" | "aborted" | "error" | "failed";
 
@@ -26,7 +27,7 @@ export interface SpawnHandle {
   }>;
 }
 
-export type SpawnFn = (role: string | undefined, task: string) => Promise<SpawnHandle>;
+export type SpawnFn = (role: string | undefined, task: string, roleDef?: InlineRoleDef) => Promise<SpawnHandle>;
 
 /** Internal options shared by executeDAG and resumeDAG (5e delegates to core). */
 interface ExecuteOptions {
@@ -147,7 +148,7 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
             wait: async () => ({ status: "failed" as const, error: "send spawn rejected" }),
           });
         } else {
-          handles = [await spawnFn(n.role, task)];
+          handles = [await spawnFn(n.role, task, n.roleDef)];
         }
         return { nodeId: n.id, handles };
         } finally {

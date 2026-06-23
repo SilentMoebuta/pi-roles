@@ -1,10 +1,13 @@
 // Topological sort into waves. A node enters the wave after ALL its deps.
 // Kahn's algorithm, level by level. Throws on unknown dep or cycle.
 import type { DAGSpec } from "./types";
+import type { InlineRoleDef } from "../subagent/spawn-role-tool";
 
 export interface PlannedNode {
   id: string;
   role?: string;
+  /** Inline role definition carried from DAGNode.roleDef (ad-hoc experts). */
+  roleDef?: InlineRoleDef;
   task: string;
   deps: string[];
   /** Phase 5c: carried from DAGNode.dynamic so the executor can fan out. */
@@ -47,7 +50,7 @@ export function planWaves(spec: DAGSpec): Wave[] {
       index: waveIndex++,
       nodes: ready.map((id) => {
         const n = spec.nodes[id];
-        return { id, role: n.role, task: n.task, deps: n.depends_on ?? [], dynamic: n.dynamic, sends: n.sends, timeout_ms: n.timeout_ms };
+        return { id, role: n.role, roleDef: n.roleDef, task: n.task, deps: n.depends_on ?? [], dynamic: n.dynamic, sends: n.sends, timeout_ms: n.timeout_ms };
       }),
     });
     for (const id of ready) {
