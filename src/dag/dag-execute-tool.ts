@@ -41,6 +41,8 @@ const Params = Type.Object({
       }, { description: "Inline role definition for ad-hoc expert dispatch (cce V4-style). No disk file. Mutually exclusive with role. Safe defaults: canSpawn=false, skills=[]." })),
       task: Type.String(),
       depends_on: Type.Optional(Type.Array(Type.String())),
+      model: Type.Optional(Type.String({ description: "Per-node model override (e.g. 'deepseek/deepseek-v4-flash'). Wins over role.frontmatter model + roleDef.model. Omit → role/default. Service-mode: caller threads --model X to every node." })),
+      thinkingLevel: Type.Optional(Type.String({ description: "Per-node thinkingLevel override ('low'|'medium'|'high'|'xhigh'|'off'). 'off' disables thinking for speed. Wins over role's." })),
     })),
   }),
   maxConcurrent: Type.Optional(Type.Number({ description: "Max concurrent spawns per wave (default 5). Caps parallel createAgentSession calls to prevent resource exhaustion." })),
@@ -83,9 +85,13 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
     } catch { /* no skills dir — skip */ }
   }
 
-  return async (roleName: string | undefined, task, roleDef?: InlineRoleDef) => {
+  return async (roleName: string | undefined, task, roleDef?: InlineRoleDef, nodeModel?: string, nodeThinking?: string) => {
     const role = roleDef ? buildInlineRole(roleDef) : (roleName ? roleRegistry.get(roleName) : undefined);
     const effectiveName = role?.name ?? roleName; // roleDef.name for inline, roleName for registry, undefined for default
+    // model 优先级: node.model (per-node override) > role.model (frontmatter/roleDef) > undefined (inherit main session)
+    const modelRef = nodeModel ?? role?.model;
+    // thinkingLevel 优先级: node.thinkingLevel > role.thinkingLevel > undefined
+    const effectiveThinking = nodeThinking ?? role?.thinkingLevel;
     // If role unknown or omitted, spawn with defaults: full tool set + no persona.
     const childTools = role
       ? Array.from(new Set([...role.tools, "report_role_result"]))
@@ -106,7 +112,6 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
     const childReportState: ReportState = { reported: new Set(), activeRole: new Map(), payloads: new Map() };
     const childReportTool = makeReportTool({ state: childReportState, schema: role?.outputSchema ?? DEFAULT_REPORT_SCHEMA, failedStep: effectiveName ?? "default" });
     // T1-4: resolve the role's model via ctx.modelRegistry (was hardcoded undefined).
-    const modelRef = role?.model;
     const resolvedModel = modelRef && modelRegistry ? resolveModelRef(modelRef, modelRegistry) : undefined;
     // T1-4: caller sessionFile so DAG nodes join the tree-abort tree (was undefined).
     const callerSessionFile = getCallerSessionFile?.();
@@ -118,7 +123,7 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
       tools: childTools,
       maxTurns: role?.maxTurns ?? 25,
       model: resolvedModel, // T1-4: was undefined — role.model now resolved + forwarded
-      thinkingLevel: role?.thinkingLevel,
+      thinkingLevel: effectiveThinking,
       resourceLoader,
       customTools: [childReportTool],
       signal, // T1-4: forward the tool AbortSignal so a mid-DAG abort reaches in-flight children

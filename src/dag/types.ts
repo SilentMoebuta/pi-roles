@@ -15,6 +15,13 @@ export interface DAGNode {
    *  bypassing the role registry. Safe defaults: canSpawn=false, skills=[]. */
   roleDef?: InlineRoleDef;
   task: string;
+  /** Per-node model override (e.g. 'deepseek/deepseek-v4-flash'). Wins over
+   *  role.frontmatter model + roleDef.model. Service-mode: caller passes
+   *  --model X and main agent threads X to every node. Omit → role/default. */
+  model?: string;
+  /** Per-node thinkingLevel override ('low'|'medium'|'high'|'xhigh'|'off').
+   *  'off' disables thinking for speed on cheap nodes. Wins over role's. */
+  thinkingLevel?: string;
   depends_on?: string[];
   /** Phase 5c: if set, this node is a DynamicNode — instead of a fixed
    *  {role, task}, it returns Send[] at runtime and the executor fans those

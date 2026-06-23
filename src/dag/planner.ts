@@ -9,6 +9,10 @@ export interface PlannedNode {
   /** Inline role definition carried from DAGNode.roleDef (ad-hoc experts). */
   roleDef?: InlineRoleDef;
   task: string;
+  /** Per-node model override (wins over role/roleDef model). */
+  model?: string;
+  /** Per-node thinkingLevel override ('off' disables thinking). */
+  thinkingLevel?: string;
   deps: string[];
   /** Phase 5c: carried from DAGNode.dynamic so the executor can fan out. */
   dynamic?: import("./send").DynamicNode;
@@ -50,7 +54,7 @@ export function planWaves(spec: DAGSpec): Wave[] {
       index: waveIndex++,
       nodes: ready.map((id) => {
         const n = spec.nodes[id];
-        return { id, role: n.role, roleDef: n.roleDef, task: n.task, deps: n.depends_on ?? [], dynamic: n.dynamic, sends: n.sends, timeout_ms: n.timeout_ms };
+        return { id, role: n.role, roleDef: n.roleDef, task: n.task, model: n.model, thinkingLevel: n.thinkingLevel, deps: n.depends_on ?? [], dynamic: n.dynamic, sends: n.sends, timeout_ms: n.timeout_ms };
       }),
     });
     for (const id of ready) {
