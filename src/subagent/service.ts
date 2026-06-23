@@ -7,6 +7,7 @@
 // spawn kicks off runSubagent async (fire-and-forget); the run settles the
 // registry's completion promise. abort(id) cancels via a per-run AbortController
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { hooks, type HookEvent, type HookHandler } from "../hooks";
 // whose signal the runner observes (→ session.abort()). Status from runtime, not
 // model text.
@@ -337,12 +338,27 @@ export class SubagentsService {
   }
 }
 
-// Default archive: rename <file>.jsonl → <file>.jsonl.archived.<ts>.
-// pi's session-tree scan filters `f.endsWith(".jsonl")`, so the renamed file
-// disappears from the tree while its content is preserved for audit.
+// Default archive: MOVE the child session file to a dedicated, centralized
+// archive directory instead of leaving a `.archived.<ts>` sibling in the live
+// session dir. pi's session-tree scan filters `f.endsWith(".jsonl")`, so moving
+// the file out of the live dir makes it disappear from the tree while its
+// content is preserved for audit/UI replay. One directory to scan for all
+// child-role traces — no more hunting for `.archived.*` siblings.
 // ponytail: rename not unlink — keeps the transcript for debugging.
-function defaultArchiveSession(sessionFile: string): void {
-  fs.renameSync(sessionFile, `${sessionFile}.archived.${Date.now()}`);
+const ARCHIVE_BASENAME = "sessions-archive";
+export function defaultArchiveSession(sessionFile: string): void {
+  const parentDir = path.dirname(sessionFile);
+  const archiveDir = path.join(path.dirname(parentDir), ARCHIVE_BASENAME, path.basename(parentDir));
+  try { fs.mkdirSync(archiveDir, { recursive: true }); } catch { /* may exist */ }
+  const dest = path.join(archiveDir, path.basename(sessionFile));
+  try {
+    fs.renameSync(sessionFile, dest);
+  } catch {
+    // If rename fails (e.g. cross-device), fall back to copy+unlink so the live
+    // dir still gets cleaned. Best-effort — archive failure must not break the run.
+    try { fs.copyFileSync(sessionFile, dest); fs.unlinkSync(sessionFile); }
+    catch { /* give up; original remains in live dir */ }
+  }
 }
 
 // Scan child session messages for the report_role_result tool call and extract
