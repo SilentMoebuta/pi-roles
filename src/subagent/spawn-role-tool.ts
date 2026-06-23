@@ -86,8 +86,68 @@ export interface SpawnToolDeps {
   notifyParent?: (text: string) => void;
 }
 
+/** Inline role definition for ad-hoc expert dispatch (cce V4-style dynamic
+ *  experts). No disk file, no skills dir. Safe defaults enforced by buildInlineRole:
+ *  canSpawn=false (anti-cascade), skills=[] (no disk loading). */
+export interface InlineRoleDef {
+  name: string;
+  description: string;
+  prompt: string;
+  tools: string[];
+  maxTurns?: number;
+  canSpawn?: boolean;
+  model?: string;
+  thinkingLevel?: string;
+}
+
+/** Construct a RoleDef from an inline definition with safe defaults.
+ *  Ad-hoc roles never load skills from disk (no dir) and default canSpawn=false
+ *  (anti-cascade) — avoids replicating cce V4's spawn-loop debts. */
+export function buildInlineRole(def: InlineRoleDef): RoleDef {
+  return {
+    name: def.name,
+    description: def.description,
+    prompt: def.prompt,
+    tools: def.tools,
+    skills: [], // forced: ad-hoc roles don't load skills from disk
+    maxTurns: def.maxTurns ?? 30,
+    canSpawn: def.canSpawn ?? false, // default false (anti-cascade)
+    teammates: [],
+    model: def.model,
+    thinkingLevel: def.thinkingLevel,
+  };
+}
+
+/** Resolve role from either inline roleDef or registry name. Mutually exclusive.
+ *  Returns {role} on success, {error} on failure (unknown role / both provided / neither). */
+export function resolveRole(
+  params: { role?: string; roleDef?: InlineRoleDef },
+  registry: Map<string, RoleDef>,
+): { role?: RoleDef; error?: string } {
+  if (params.role && params.roleDef) {
+    return { error: "Provide role OR roleDef, not both (mutually exclusive)." };
+  }
+  if (params.roleDef) return { role: buildInlineRole(params.roleDef) };
+  if (params.role) {
+    const r = registry.get(params.role);
+    if (!r) return { error: `unknown role: ${params.role}` };
+    return { role: r };
+  }
+  return { error: "Either (role + task) or (roleDef + task) for spawn, or agentId for join is required." };
+}
+
 const Params = Type.Object({
-  role: Type.Optional(Type.String({ description: "Name of the role to spawn (from role catalog). Required for spawn. Omit for join (agentId only)." })),
+  role: Type.Optional(Type.String({ description: "Name of the role to spawn (from role catalog). Mutually exclusive with roleDef." })),
+  roleDef: Type.Optional(Type.Object({
+    name: Type.String(),
+    description: Type.String(),
+    prompt: Type.String(),
+    tools: Type.Array(Type.String()),
+    maxTurns: Type.Optional(Type.Number()),
+    canSpawn: Type.Optional(Type.Boolean()),
+    model: Type.Optional(Type.String()),
+    thinkingLevel: Type.Optional(Type.String()),
+  }, { description: "Inline role definition for ad-hoc expert dispatch (cce V4-style dynamic experts). No disk file. Mutually exclusive with role. Safe defaults: canSpawn=false, skills=[]." })),
   task: Type.Optional(Type.String({ description: "The task for the role to perform. Required for spawn. Omit for join (agentId only)." })),
   mode: Type.Optional(Type.Union([
     Type.Literal("foreground"),
@@ -111,7 +171,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
     label: "Spawn Role",
     description: "Spawn a role-scoped subagent with persona + tool whitelist + step limit. Foreground: blocks until the role reports its result via report_role_result. Returns {status, result|error, agentId}.",
     parameters: Params,
-    async execute(_toolCallId: string, params: { role: string; task: string; mode?: "foreground" | "background"; model?: string; maxTurns?: number; thinkingLevel?: string; maxDepth?: number; agentId?: string; retryCount?: number }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: unknown) {
+    async execute(_toolCallId: string, params: { role?: string; roleDef?: InlineRoleDef; task: string; mode?: "foreground" | "background"; model?: string; maxTurns?: number; thinkingLevel?: string; maxDepth?: number; agentId?: string; retryCount?: number }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: unknown) {
       // Join mode: wait for a background agent by its ID.
       if (params.agentId) {
         const rec = await deps.service.waitForResult(params.agentId);
@@ -121,9 +181,15 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         return okResult({ status: "error", error: rec.error ?? rec.reason ?? "unknown error", agentId: params.agentId });
       }
 
-      // Spawn mode: require role and task.
-      if (!params.role || !params.task) {
-        return okResult({ status: "error", error: "Either (role + task) for spawn or agentId for join is required." });
+      // Spawn mode: require task + (role OR roleDef), mutually exclusive.
+      if (!params.task) {
+        return okResult({ status: "error", error: "task is required for spawn (or agentId for join)." });
+      }
+      if (params.role && params.roleDef) {
+        return okResult({ status: "error", error: "Provide role OR roleDef, not both (mutually exclusive)." });
+      }
+      if (!params.role && !params.roleDef) {
+        return okResult({ status: "error", error: "Either role or roleDef is required for spawn (or agentId for join)." });
       }
 
       const mode = params.mode ?? "foreground";
@@ -149,10 +215,11 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         // callerRoleName unknown → orphan subagent; allow (shouldn't normally happen)
       }
 
-      const role = deps.roleRegistry.get(params.role);
-      if (!role) {
-        return okResult({ status: "error", error: `unknown role: ${params.role}` });
+      const resolved = resolveRole(params, deps.roleRegistry);
+      if (resolved.error || !resolved.role) {
+        return okResult({ status: "error", error: resolved.error ?? "role resolution failed" });
       }
+      const role = resolved.role;
 
       // The role's `tools` whitelist drives the child's createSession allowlist.
       // BUT report_role_result is the output-contract tool — every role MUST be
