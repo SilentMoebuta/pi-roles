@@ -16,6 +16,7 @@ import * as os from "node:os";
 import { fileURLToPath } from "node:url";
 import { executeDAGCore, type SpawnFn } from "./executor";
 import { validateDAG } from "./validate";
+import { makeOnProgress } from "./progress";
 import { resolveModelRef, buildInlineRole, type InlineRoleDef } from "../subagent/spawn-role-tool";
 import { discoverRoleSkillDirs } from "../subagent/role-skills-discovery";
 import type { DAGSpec, NodePayload } from "./types";
@@ -178,12 +179,10 @@ export function makeDagExecuteTool(deps: DagExecuteDeps) {
         getCallerSessionFile: () => ctx?.sessionManager?.getSessionFile?.(),
       });
       // Forward progress events through pi's streaming tool-update channel (Gap P3).
-      const onProgress = onUpdate
-        ? (p: { currentWave: number; totalWaves: number; nodes?: Record<string, { status: string }> }) => {
-            const nodeCount = p.nodes ? Object.keys(p.nodes).length : 0;
-            onUpdate({ content: [{ type: "text" as const, text: `DAG wave ${p.currentWave + 1}/${p.totalWaves} (${nodeCount} nodes) running...` }], details: undefined });
-          }
-        : undefined;
+      // Fixed: was `details: undefined` — dropped structured progress before it
+      // could reach tool_execution_update / the dag-visibility widget. Now bridges
+      // to {kind:'dag-progress', spec, progress} via the pure makeOnProgress helper.
+      const onProgress = onUpdate ? makeOnProgress(spec, onUpdate) : undefined;
       // Pre-flight validation: catch bad depends_on refs / unreachable nodes before
       // executing, so DAG spec errors surface immediately instead of silently
       // dropping nodes (chief-reviewer scheduling bug, P0).
