@@ -49,10 +49,24 @@ export function toDagProgress(
   const nodes: DagProgressView["nodes"] = {};
   for (const [id, node] of Object.entries(spec.nodes)) {
     const r = raw.nodes?.[id];
+    let status: NodeStatus;
+    if (r?.status) {
+      // explicit status from raw — trust it (covers running/failed/queued of current wave)
+      status = r.status as NodeStatus;
+    } else if (waves[id] < raw.currentWave) {
+      // node is in a wave BEFORE the current one, and executor's onProgress
+      // only reports the current wave's nodes — so absence here means the
+      // node's wave already completed. Default to 'completed' (otherwise the
+      // widget would lie: show past waves as 0/N queued while currentWave advanced).
+      status = "completed";
+    } else {
+      // current/future wave with no explicit status → queued
+      status = "queued";
+    }
     nodes[id] = {
       task: node.task,
       deps: node.depends_on ?? [],
-      status: (r?.status as NodeStatus) ?? "queued",
+      status,
       wave: waves[id],
       error: r?.error,
     };

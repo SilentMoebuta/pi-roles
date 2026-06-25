@@ -26,10 +26,24 @@ describe("toDagProgress", () => {
     assert.equal(view.nodes["task-2"].status, "running");
     assert.equal(view.nodes["task-3"].status, "queued");
   });
-  it("nodes without explicit status default to 'queued'", () => {
+  it("nodes without explicit status default to 'queued' (for current/future waves)", () => {
     const raw = { currentWave: 0, totalWaves: 1, nodes: {} };
     const view = toDagProgress(spec, raw);
     assert.equal(view.nodes["task-1"].status, "queued");
+  });
+  it("nodes in COMPLETED waves (wave < currentWave) without explicit status default to 'completed'", () => {
+    // Real bug from actual DAG run: executor's onProgress only reports the
+    // CURRENT wave's nodes, so nodes from earlier (completed) waves are absent
+    // from raw.nodes. They were shown as 'queued' (○) even though done —
+    // making the widget lie (Wave 0 showed 0/3 while currentWave had advanced).
+    const raw = { currentWave: 1, totalWaves: 2, nodes: {
+      "task-3": { status: "queued" }, // task-3 is in wave 1, current → queued
+      // task-1, task-2 (wave 0, < currentWave 1) ABSENT from raw — should infer completed
+    } };
+    const view = toDagProgress(spec, raw);
+    assert.equal(view.nodes["task-1"].status, "completed", "wave-0 node absent from raw but wave < currentWave → completed");
+    assert.equal(view.nodes["task-2"].status, "completed", "wave-0 node absent from raw but wave < currentWave → completed");
+    assert.equal(view.nodes["task-3"].status, "queued", "current-wave node keeps its explicit queued status");
   });
   it("computes wave assignment via topological layering (Kahn)", () => {
     const raw = { currentWave: 0, totalWaves: 2, nodes: {} };
