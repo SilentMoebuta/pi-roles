@@ -84,11 +84,11 @@ describe("renderDagGraph", () => {
   });
   it("renders dependency edges as ASCII box-line connectors (├─ └─), not text annotation", () => {
     const v: DagProgressView = {
-      dagId: "d1", currentWave: 0, totalWaves: 2,
+      dagId: "d1", currentWave: 1, totalWaves: 2,
       nodes: {
         "task-1": { task: "A", deps: [], status: "completed", wave: 0 },
         "task-2": { task: "B", deps: [], status: "completed", wave: 0 },
-        "task-3": { task: "C after A+B", deps: ["task-1", "task-2"], status: "queued", wave: 1 },
+        "task-3": { task: "C after A+B", deps: ["task-1", "task-2"], status: "running", wave: 1 },
       },
     };
     const lines = renderDagGraph(v, 80);
@@ -104,5 +104,56 @@ describe("renderDagGraph", () => {
     // multi-dep: first dep uses ├─ (branch), last uses └─ (terminator)
     assert.ok(lines.some(l => l.includes("├─") && /task-1/.test(l)), "first dep branches with ├─");
     assert.ok(lines.some(l => l.includes("└─") && /task-2/.test(l)), "last dep terminates with └─");
+  });
+
+  describe("dynamic expand/collapse by wave state", () => {
+    // Multi-wave view: wave 0 done, wave 1 running, wave 2 not started.
+    function multiWaveView(): DagProgressView {
+      return {
+        dagId: "d1", currentWave: 1, totalWaves: 3,
+        nodes: {
+          "task-1": { task: "research A", deps: [], status: "completed", wave: 0 },
+          "task-2": { task: "research B", deps: [], status: "completed", wave: 0 },
+          "task-3": { task: "consolidate", deps: ["task-1", "task-2"], status: "running", wave: 1 },
+          "task-4": { task: "deep dive A", deps: ["task-3"], status: "queued", wave: 2 },
+          "task-5": { task: "deep dive B", deps: ["task-3"], status: "queued", wave: 2 },
+        },
+      };
+    }
+    it("collapses a fully-completed wave into a one-line summary (no node details)", () => {
+      const lines = renderDagGraph(multiWaveView(), 70);
+      // wave 0 is done → collapsed: header line present, node lines absent
+      const w0Header = lines.find(l => /Wave 0/.test(l));
+      assert.ok(w0Header, "Wave 0 header present");
+      // no "task-1: research A" node line under wave 0 (collapsed)
+      const w0Block = lines.slice(lines.indexOf(w0Header!) + 1, lines.findIndex((l, i) => i > lines.indexOf(w0Header!) && /Wave \d/.test(l)));
+      assert.ok(!w0Block.some(l => /task-1:/.test(l) || /task-2:/.test(l)), "completed wave 0 nodes collapsed (no node detail lines)");
+      // summary should show done count
+      assert.match(w0Header!, /2\/2|✓/ , "collapsed wave shows completion");
+    });
+    it("expands the running wave with full node + dep detail", () => {
+      const lines = renderDagGraph(multiWaveView(), 70);
+      // wave 1 is running → expanded: task-3 node line + its dep connectors present
+      assert.ok(lines.some(l => /task-3/.test(l) && /:/.test(l)), "running wave node line shown");
+      assert.ok(lines.some(l => /[├└]─.*task-1/.test(l)), "running wave dep edges shown");
+    });
+    it("collapses a not-yet-started wave into a one-line summary", () => {
+      const lines = renderDagGraph(multiWaveView(), 70);
+      const w2Header = lines.find(l => /Wave 2/.test(l));
+      assert.ok(w2Header, "Wave 2 header present");
+      // no task-4/task-5 node detail lines
+      const w2Block = lines.slice(lines.indexOf(w2Header!) + 1);
+      assert.ok(!w2Block.some(l => /task-4:/.test(l) || /task-5:/.test(l)), "queued wave 2 nodes collapsed");
+      assert.match(w2Header!, /0\/2|queued|○/, "collapsed wave shows queued state");
+    });
+    it("keeps total output short (collapsed waves don't bloat the widget)", () => {
+      const lines = renderDagGraph(multiWaveView(), 70);
+      // 3 wave headers + running wave's ~4 detail lines + header ≈ < 12 lines
+      assert.ok(lines.length <= 12, `output has ${lines.length} lines, should be compact (<=12)`);
+    });
+    it("still shows header with wave progress", () => {
+      const lines = renderDagGraph(multiWaveView(), 70);
+      assert.ok(lines.some(l => /wave 2\/3/.test(l)), "header shows current wave progress");
+    });
   });
 });

@@ -66,10 +66,38 @@ function shortLabel(task: string): string {
   return truncate(task, LABEL_DISPLAY_WIDTH);
 }
 
+// Determine whether a wave should be expanded (show node details) or collapsed
+// (one-line summary). Expand the wave containing the current/active work; also
+// expand a wave that has a running or failed node (so failures stay visible).
+// Fully-completed and not-yet-started waves collapse to a summary line.
+function shouldExpandWave(wave: number, view: DagProgressView): boolean {
+  if (wave === view.currentWave) return true;
+  // also expand if any node in this wave is running or failed (active/needs attention)
+  for (const node of Object.values(view.nodes)) {
+    if (node.wave === wave && (node.status === "running" || node.status === "failed")) return true;
+  }
+  return false;
+}
+
+// Render a collapsed wave summary line, e.g. "Wave 0  ✓ 3/3".
+function collapseWaveLine(wave: number, ids: string[], view: DagProgressView, width: number): string {
+  let done = 0, total = ids.length;
+  let sym = "○";
+  for (const id of ids) {
+    const st = view.nodes[id]?.status;
+    if (st === "completed") done++;
+  }
+  if (done === total) sym = "✓";
+  else if (done > 0) sym = "◐";
+  return truncate(`Wave ${wave}  ${sym} ${done}/${total}`, width);
+}
+
 // Render a DAG state graph as ASCII lines, width-bounded (CJK-aware).
-// Layout: header (wave progress) → per-wave block (wave label + node lines).
-// Each node line: "  <symbol> <id>: <short label>  [error]"
-// Dependency edges: box-line connectors (├─ branch / └─ terminator) under the node.
+// Layout: header (wave progress) → per-wave block.
+// DYNAMIC: the active wave (currentWave, or any wave with running/failed nodes)
+// is expanded with full node + dep-edge detail; completed and not-yet-started
+// waves collapse to a one-line summary. Keeps the widget compact and focused
+// on what's happening now.
 // Pure string math — no TUI dep, fully unit-testable.
 export function renderDagGraph(view: DagProgressView, width: number): string[] {
   const lines: string[] = [];
@@ -83,8 +111,13 @@ export function renderDagGraph(view: DagProgressView, width: number): string[] {
   }
   const waves = [...byWave.keys()].sort((a, b) => a - b);
   for (const w of waves) {
+    const ids = byWave.get(w)!;
+    if (!shouldExpandWave(w, view)) {
+      lines.push(collapseWaveLine(w, ids, view, width));
+      continue;
+    }
     lines.push(truncate(`Wave ${w}`, width));
-    for (const id of byWave.get(w)!) {
+    for (const id of ids) {
       const node = view.nodes[id];
       const sym = STATUS_SYMBOL[node.status];
       let line = `  ${sym} ${id}: ${shortLabel(node.task)}`;
