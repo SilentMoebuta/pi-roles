@@ -314,7 +314,13 @@ export function renderDagGraph(view: DagProgressView, width: number): string[] {
       const node = view.nodes[id];
       const sym = STATUS_SYMBOL[node.status];
       let line = `  ${sym} ${id}: ${node.task}`;
-      if (node.deps.length > 0) line += `  [deps: ${node.deps.join(",")}]`;
+      node.deps.forEach((depId, i) => {
+        const isLast = i === node.deps.length - 1;
+        const connector = isLast ? "└─" : "├─";
+        const depNode = view.nodes[depId];
+        const depSym = depNode ? STATUS_SYMBOL[depNode.status] : "?";
+        lines.push(truncate(`  ${connector} ${depSym} ${depId}`, width));
+      });
       if (node.error) line += `  [${node.error}]`;
       lines.push(truncate(line, width));
     }
@@ -692,7 +698,7 @@ Then update goal criteria with evidence (per-criterion) and mark goal complete o
 - TDD → every pure unit tested first ✓
 - runbook → Task 6 ✓
 
-**2. Placeholder scan:** Task 3 originally had a comment-only failing test + TDD-order inversion + a dangling file reference — rewritten so makeOnProgress test precedes implementation (reviewer-caught). Task 4 originally used `(pi as any).ui` which doesn't exist on pi (ui is on ctx) and the fake-pi structurally hid it — fixed to `(e, ctx) => ctx.ui.setWidget` + `ctx.mode==='tui'` guard + a non-tui mode test (reviewer-caught, most serious). renderDagGraph now renders dependency edges `[deps: ...]` with a test (reviewer-caught spec gap). No other TBDs.
+**2. Placeholder scan:** Task 3 originally had a comment-only failing test + TDD-order inversion + a dangling file reference — rewritten so makeOnProgress test precedes implementation (reviewer-caught). Task 4 originally used `(pi as any).ui` which doesn't exist on pi (ui is on ctx) and the fake-pi structurally hid it — fixed to `(e, ctx) => ctx.ui.setWidget` + `ctx.mode==='tui'` guard + a non-tui mode test (reviewer-caught, most serious). renderDagGraph now renders dependency edges as ASCII box-line connectors (├─/└─) per criterion cd991c7's literal requirement (was text `[deps: ...]`, then upgraded to box-line after self-audit caught the gap) with a test (reviewer-caught spec gap initially). No other TBDs.
 
 **3. Type consistency:** `DagProgressView` defined in progress.ts, used in dag-graph.ts + dag-visibility.ts consistently. `STATUS_SYMBOL` exported from dag-graph. `makeOnProgress`/`toDagProgress` in progress.ts.
 
