@@ -15,6 +15,7 @@ import { makeOutputContractEnforcer } from "./src/subagent/output-contract-enfor
 import { makeOutputContractProactiveHandler } from "./src/subagent/output-contract-proactive";
 import { makeDagExecuteTool } from "./src/dag/dag-execute-tool";
 import { makeDagResumeTool } from "./src/dag/dag-resume-tool";
+import { createDagVisibility } from "./src/dag/dag-visibility";
 import { registerPmCommands } from "./src/pm-commands";
 import { registerRoleCommands } from "./src/role-commands";
 import { buildRolePersonaPrompt, parseActiveRoleFromBranch } from "./src/active-role";
@@ -98,6 +99,11 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     cwd: dagCwd,
     agentDir: dagAgentDir,
   }) as any);
+
+  // DAG execution visibility: render a live DAG status graph (nodes + wave + dep
+  // edges) to a TUI widget while dag_execute runs. Pure read-only — no control.
+  // Reads tool_execution_update (bridged from onProgress via makeOnProgress).
+  createDagVisibility(pi);
 
   // PM role commands (Step 4): register /pm-* slash commands that drive
   // spawn_role(pm, task-with-skill) per option A'.
