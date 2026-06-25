@@ -15,7 +15,7 @@
      - `◐` running
      - `✓` completed
      - `✗` failed (with `[error]`)
-   - Dependency edges shown as `[deps: task-1]` on nodes with dependencies.
+   - Dependency edges rendered as box-line connectors (├─ branch / └─ terminator), each showing the dep's current status symbol — not a text `[deps:]` label.
 4. As waves progress, the widget should update (statuses flip queued→running→completed).
 5. When dag_execute ends, the widget clears.
 6. In non-tui modes (`pi -p` / `pi --mode rpc`), NO widget renders (no surface) — verify by checking that rpc/json output is unaffected.
@@ -23,7 +23,7 @@
 ## Pass criteria
 - [ ] DAG widget appears during dag_execute (tui mode only)
 - [ ] Node statuses visible and update over time
-- [ ] Dependency edges rendered for nodes with deps
+- [ ] Dependency edges rendered as ASCII box-line connectors (├─ / └─), each dep on its own line with its status symbol
 - [ ] Widget clears on dag_execute end
 - [ ] Concurrent DAGs (two dag_execute running) don't cross-talk — each toolCallId isolated, widget shows the most recent active one without dropping the other's state
 - [ ] No token cost (details doesn't enter LLM context — AgentToolResult.details is UI-only metadata, like todo.ts)

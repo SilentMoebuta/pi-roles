@@ -29,9 +29,18 @@ export function renderDagGraph(view: DagProgressView, width: number): string[] {
       const node = view.nodes[id];
       const sym = STATUS_SYMBOL[node.status];
       let line = `  ${sym} ${id}: ${node.task}`;
-      if (node.deps.length > 0) line += `  [deps: ${node.deps.join(",")}]`;
       if (node.error) line += `  [${node.error}]`;
       lines.push(truncate(line, width));
+      // Dependency edges: render each dep as a box-line connector (tree-style),
+      // using └─ (terminator) for the last dep and ├─ (branch) for the rest —
+      // genuine ASCII box-drawing edges, not a text "[deps:]" annotation.
+      node.deps.forEach((depId, i) => {
+        const isLast = i === node.deps.length - 1;
+        const connector = isLast ? "└─" : "├─";
+        const depNode = view.nodes[depId];
+        const depSym = depNode ? STATUS_SYMBOL[depNode.status] : "?";
+        lines.push(truncate(`  ${connector} ${depSym} ${depId}`, width));
+      });
     }
   }
   return lines;

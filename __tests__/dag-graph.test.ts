@@ -60,17 +60,27 @@ describe("renderDagGraph", () => {
     const joined = renderDagGraph(v, 60).join("\n");
     assert.match(joined, /1.*3/);
   });
-  it("renders dependency edges (deps annotation on nodes with dependencies)", () => {
+  it("renders dependency edges as ASCII box-line connectors (├─ └─), not text annotation", () => {
     const v: DagProgressView = {
       dagId: "d1", currentWave: 0, totalWaves: 2,
       nodes: {
         "task-1": { task: "A", deps: [], status: "completed", wave: 0 },
-        "task-3": { task: "C after A", deps: ["task-1"], status: "queued", wave: 1 },
+        "task-2": { task: "B", deps: [], status: "completed", wave: 0 },
+        "task-3": { task: "C after A+B", deps: ["task-1", "task-2"], status: "queued", wave: 1 },
       },
     };
-    const joined = renderDagGraph(v, 80).join("\n");
-    assert.match(joined, /task-3.*deps?:.*task-1|task-3.*→.*task-1|task-3.*←.*task-1/, "dep edge rendered");
-    const t1Line = joined.split("\n").find(l => l.includes("task-1"))!;
-    assert.doesNotMatch(t1Line, /deps?/);
+    const lines = renderDagGraph(v, 80);
+    const joined = lines.join("\n");
+    // dep edges rendered with box-line connectors (├─ or └─), not text [deps:]
+    assert.ok(/[├└]─/.test(joined), "box-line connector present (├─ or └─)");
+    // the node line itself must NOT carry an inline [deps:] text annotation
+    const t3Line = lines.find(l => l.includes("task-3") && l.includes(":"))!;
+    assert.doesNotMatch(t3Line, /\[deps/, "no inline [deps:] text annotation on node line");
+    // each dependency appears on its own connector line, prefixed by a box char
+    assert.ok(lines.some(l => /[├└]─.*task-1/.test(l)), "task-1 dep on a connector line");
+    assert.ok(lines.some(l => /[├└]─.*task-2/.test(l)), "task-2 dep on a connector line");
+    // multi-dep: first dep uses ├─ (branch), last uses └─ (terminator)
+    assert.ok(lines.some(l => l.includes("├─") && /task-1/.test(l)), "first dep branches with ├─");
+    assert.ok(lines.some(l => l.includes("└─") && /task-2/.test(l)), "last dep terminates with └─");
   });
 });
