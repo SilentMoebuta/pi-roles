@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { renderDagGraph, STATUS_SYMBOL } from "../src/dag/dag-graph";
+import { renderDagGraph, STATUS_SYMBOL, displayWidth } from "../src/dag/dag-graph";
 import type { DagProgressView } from "../src/dag/progress";
 
 function view(overrides: Partial<DagProgressView> = {}): DagProgressView {
@@ -53,7 +53,29 @@ describe("renderDagGraph", () => {
       Array.from({length: 10}, (_, i) => [`task-${i}`, { task: `task ${i}`.repeat(5), deps: [], status: "queued", wave: 0 }])
     )});
     const lines = renderDagGraph(v, 40);
-    assert.ok(lines.every(l => l.length <= 40), "no line exceeds width");
+    // display-width aware: ASCII counts as 1 col
+    assert.ok(lines.every(l => displayWidth(l) <= 40), "no line exceeds display width");
+  });
+  it("CJK width: Chinese chars count as 2 display columns, not 1 (prevents TUI wrapping)", () => {
+    // A node with a long Chinese task must be truncated by DISPLAY width,
+    // not code-point length — otherwise 40 Chinese chars = 80 code points
+    // would pass a length<=80 check but render as 80 display cols in a 40-col
+    // widget, forcing the TUI to wrap (the real-world bug).
+    const longChinese = "调研 2026 上半年中国大陆主要经济作物的经济回报价格走势亩均收益".repeat(2);
+    const v = view({ nodes: { "task-1": { task: longChinese, deps: [], status: "queued", wave: 0 } } });
+    const lines = renderDagGraph(v, 40);
+    const nodeLine = lines.find(l => l.includes("task-1"))!;
+    assert.ok(displayWidth(nodeLine) <= 40, `node line display width ${displayWidth(nodeLine)} must be <= 40 (CJK=2)`);
+  });
+  it("node line shows a SHORT label, not the full multi-sentence task text", () => {
+    const longTask = "调研 2026 上半年中国大陆主要经济作物（粮油棉糖等大宗类）的经济回报：价格走势、亩均收益、成本结构、种植面积变化、政策补贴。输出结构化 findings";
+    const v = view({ nodes: { "task-1": { task: longTask, deps: [], status: "queued", wave: 0 } } });
+    const lines = renderDagGraph(v, 80);
+    const nodeLine = lines.find(l => l.includes("task-1"))!;
+    // the full long task must NOT appear verbatim on the node line
+    assert.ok(!nodeLine.includes("输出结构化"), "full task tail must not appear on node line");
+    // line should be short enough to be a readable overview
+    assert.ok(displayWidth(nodeLine) <= 80, "node line stays within width");
   });
   it("shows header with wave progress (currentWave/totalWaves)", () => {
     const v = view({ currentWave: 1, totalWaves: 3 });
