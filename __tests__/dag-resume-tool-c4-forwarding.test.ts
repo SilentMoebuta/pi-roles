@@ -59,10 +59,10 @@ describe("dag_resume — C4: forwards signal + model + parentSessionId (parity w
 
   it("role.model is resolved via ctx.modelRegistry and forwarded to resumed children", async () => {
     const spawns: any[] = [];
-    const fakeModel = { id: "glm-5.2", provider: "ksyun" };
-    const modelRegistry = { find: (provider: string, id: string) => (provider === "ksyun" && id === "glm-5.2" ? fakeModel : undefined), getAll: () => [fakeModel] };
+    const fakeModel = { id: "test-model", provider: "testprov" };
+    const modelRegistry = { find: (provider: string, id: string) => (provider === "testprov" && id === "test-model" ? fakeModel : undefined), getAll: () => [fakeModel] };
     const tool = makeDagResumeTool({
-      roleRegistry: new Map([["reviewer", role("reviewer", { model: "ksyun/glm-5.2" })]]),
+      roleRegistry: new Map([["reviewer", role("reviewer", { model: "testprov/test-model" })]]),
       service: recordingService(spawns),
       reportState: { reported: new Set(), activeRole: new Map(), payloads: new Map() } as ReportState,
       cwd: "/tmp", agentDir: "/tmp",

@@ -52,7 +52,7 @@ async function main() {
   // DEFAULT resourceLoader → loads pi-roles from the git checkout (this branch),
   // including the new before_provider_request handler. No custom loader (a custom
   // one loaded 0 extensions in standalone context — missing settingsManager).
-  console.log("[spike] createAgentSession (default resourceLoader loads this branch's pi-roles; default model = ksyun/glm-5.2)...");
+  console.log("[spike] createAgentSession (default resourceLoader loads this branch's pi-roles; default model = testprov/test-model)...");
   const { session } = await createAgentSession({
     cwd,
     agentDir,

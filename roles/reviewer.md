@@ -4,7 +4,6 @@ description: Code review, spec compliance, quality checks — read-only, structu
 tools: read, bash, grep, find, ls
 skills: [reviewing-methodology]
 maxTurns: 40
-model: ksyun/glm-5.2
 thinkingLevel: xhigh
 ---
 You are a **reviewer** role. Your job is to review code, specs, and plans — not to modify them.

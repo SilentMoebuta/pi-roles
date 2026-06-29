@@ -2,7 +2,7 @@
 //
 // Spawns a REAL child session via real createAgentSession (default resourceLoader
 // loads the pi-roles extension → the child-side agent_end enforcer registers via
-// pi.on) + real ksyun/glm-5.2 (settings default). The child is marked as a
+// pi.on) + real testprov/test-model (settings default). The child is marked as a
 // subagent (parentSession header set) so the enforcer's gating
 // (getHeader().parentSession) passes. The task makes the model respond WITHOUT
 // calling report_role_result → on agent_end the enforcer scans event.messages,
@@ -36,7 +36,7 @@ async function main() {
   const sessionFile = sm.getSessionFile();
   console.log("[probe] child sessionFile:", sessionFile);
 
-  console.log("[probe] createAgentSession (default resourceLoader loads pi-roles; default model = ksyun/glm-5.2)...");
+  console.log("[probe] createAgentSession (default resourceLoader loads pi-roles; default model = testprov/test-model)...");
   const { session } = await createAgentSession({
     cwd,
     agentDir,
@@ -45,7 +45,7 @@ async function main() {
     // load). The default resourceLoader registers it → isAllowedTool passes.
     tools: ["report_role_result"],
     thinkingLevel: "low",
-    // No model → pi resolves settings default (ksyun/glm-5.2).
+    // No model → pi resolves settings default (testprov/test-model).
     // No resourceLoader → default load (includes pi-roles → enforcer registers).
   }) as any;
 

@@ -153,7 +153,7 @@ const Params = Type.Object({
     Type.Literal("foreground"),
     Type.Literal("background"),
   ], { description: "foreground (default) blocks until the role finishes; background returns immediately (Phase 5, not yet supported)." })),
-  model: Type.Optional(Type.String({ description: "Override the role's default model. Use provider/modelId (e.g. 'ksyun/glm-5.2') or bare id (e.g. 'deepseek-v4-flash'). If omitted, the role's preset model is used." })),
+  model: Type.Optional(Type.String({ description: "Override the role's default model. Use provider/modelId (e.g. 'testprov/test-model') or bare id (e.g. 'deepseek-v4-flash'). If omitted, the role's preset model is used." })),
   maxTurns: Type.Optional(Type.Number({ description: "Override the role's maxTurns (turn budget). Useful for deep research (9999) vs quick lookup (30). If omitted, the role's preset maxTurns is used." })),
   thinkingLevel: Type.Optional(Type.String({ description: "Override the role's thinking level (e.g. 'low', 'medium', 'high', 'xhigh'). If omitted, the role's preset thinkingLevel is used." })),
   maxDepth: Type.Optional(Type.Number({ description: "Maximum nesting depth for recursive spawns. Default 5. Decrements per nesting level. Sub-agents at depth <=0 cannot spawn further." })),

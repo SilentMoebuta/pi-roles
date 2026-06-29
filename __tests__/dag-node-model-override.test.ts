@@ -41,14 +41,14 @@ describe("DAG node.model + node.thinkingLevel per-node override", () => {
     };
     const spec: DAGSpec = { nodes: {
       a: {
-        roleDef: { name: "x", description: "d", prompt: "p", tools: ["read"], model: "ksyun/glm-5.2" },
+        roleDef: { name: "x", description: "d", prompt: "p", tools: ["read"], model: "testprov/test-model" },
         task: "t",
         model: "deepseek/deepseek-v4-flash",  // node 级覆盖, 应优先于 roleDef.model
       } as any,
     }};
     await executeDAG(spec, spawnFn);
     assert.equal(observedNodeModel, "deepseek/deepseek-v4-flash", "node.model wins");
-    assert.equal(observedRoleModel, "ksyun/glm-5.2", "roleDef.model still readable but node wins");
+    assert.equal(observedRoleModel, "testprov/test-model", "roleDef.model still readable but node wins");
   });
 
   it("thinkingLevel omitted → spawnFn receives undefined (inherits role/default)", async () => {

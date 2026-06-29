@@ -50,11 +50,11 @@ describe("dag_execute — T1-4: spawnFn forwards signal + model + parentSessionI
 
   it("role.model is resolved via ctx.modelRegistry and forwarded to service.spawn({model})", async () => {
     const spawns: any[] = [];
-    const fakeModel = { id: "glm-5.2", provider: "ksyun" };
+    const fakeModel = { id: "test-model", provider: "testprov" };
     // modelRegistry.find(provider, id) returns the model; getAll() fallback.
-    const modelRegistry = { find: (provider: string, id: string) => (provider === "ksyun" && id === "glm-5.2" ? fakeModel : undefined), getAll: () => [fakeModel] };
+    const modelRegistry = { find: (provider: string, id: string) => (provider === "testprov" && id === "test-model" ? fakeModel : undefined), getAll: () => [fakeModel] };
     const tool = makeDagExecuteTool({
-      roleRegistry: new Map([["reviewer", role("reviewer", { model: "ksyun/glm-5.2" })]]),
+      roleRegistry: new Map([["reviewer", role("reviewer", { model: "testprov/test-model" })]]),
       service: recordingService(spawns),
       reportState: { reported: new Set(), activeRole: new Map(), payloads: new Map() },
       cwd: "/tmp", agentDir: "/tmp",

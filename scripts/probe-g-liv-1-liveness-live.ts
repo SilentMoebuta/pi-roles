@@ -1,7 +1,7 @@
 // probe-g-liv-1-liveness-live.ts — G-LIV-1 live e2e proof.
 //
 // Spawns a REAL child session via real createAgentSession (default resourceLoader
-// loads pi-roles) + real ksyun/glm-5.2. The child is given a custom `sleep_tool`
+// loads pi-roles) + real testprov/test-model. The child is given a custom `sleep_tool`
 // that sleeps 15s, plus report_role_result (so the output-contract enforcer is
 // satisfied and the child stops cleanly in ~2 turns — minimal inter-message
 // latency exposure). We drive the child via the REAL runSubagent with
@@ -66,7 +66,7 @@ async function main() {
   const reportState: ReportState = { reported: new Set(), activeRole: new Map(), payloads: new Map() };
   const reportTool = makeReportTool({ state: reportState, schema: DEFAULT_REPORT_SCHEMA, failedStep: "probe" });
 
-  console.log("[probe] createAgentSession (default resourceLoader loads pi-roles; default model = ksyun/glm-5.2)...");
+  console.log("[probe] createAgentSession (default resourceLoader loads pi-roles; default model = testprov/test-model)...");
   const { session } = await createAgentSession({
     cwd,
     agentDir,
