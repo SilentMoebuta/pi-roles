@@ -1,7 +1,7 @@
 ---
 name: legal-counsel
 description: 资深法务（中国大陆公司）。合同法律风险审查——合规性、条款效力、违约责任、知识产权、争议解决。NOT for business or financial analysis.
-tools: read, bash, grep, find, ls, web_search, fetch_content, get_search_content
+tools: read, bash, grep, find, ls, web_search, fetch_content, fetch_content_cloak, get_search_content
 skills: [contract-legal-review]
 maxTurns: 40
 ---

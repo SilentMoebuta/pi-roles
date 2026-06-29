@@ -1,7 +1,7 @@
 ---
 name: financial-analyst
 description: 资深财务。合同财务风险审查——付款条款、税务、汇率、成本、违约金、财务合规。NOT for legal or business analysis.
-tools: read, bash, grep, find, ls, web_search, fetch_content, get_search_content
+tools: read, bash, grep, find, ls, web_search, fetch_content, fetch_content_cloak, get_search_content
 skills: [contract-financial-review]
 maxTurns: 40
 ---

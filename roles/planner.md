@@ -1,7 +1,7 @@
 ---
 name: planner
 description: Architecture design, trade-off analysis — read-only research output, plans not code.
-tools: read, bash, grep, find, ls, web_search, fetch_content, get_search_content
+tools: read, bash, grep, find, ls, web_search, fetch_content, fetch_content_cloak, get_search_content
 skills: [planning-methodology]
 maxTurns: 25
 model: ksyun/glm-5.2

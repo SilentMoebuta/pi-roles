@@ -1,7 +1,7 @@
 ---
 name: researcher
 description: Internet research, API doc lookup, data collection. Read-only investigation.
-tools: read, bash, grep, find, ls, web_search, fetch_content, get_search_content, code_search
+tools: read, bash, grep, find, ls, web_search, fetch_content, fetch_content_cloak, get_search_content, code_search
 skills: [technical-research]
 maxTurns: 9999
 ---

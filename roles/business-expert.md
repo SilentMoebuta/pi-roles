@@ -1,7 +1,7 @@
 ---
 name: business-expert
 description: 资深业务。合同业务可执行性审查——交付条款、SLA、定价模型、依赖条款、排他/竞业。NOT for legal or financial analysis.
-tools: read, bash, grep, find, ls, web_search, fetch_content, get_search_content
+tools: read, bash, grep, find, ls, web_search, fetch_content, fetch_content_cloak, get_search_content
 skills: [contract-business-terms]
 maxTurns: 40
 ---
