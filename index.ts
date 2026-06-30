@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseRoleFrontmatter, type RoleDef } from "./src/roles";
@@ -19,6 +20,7 @@ import { createDagVisibility } from "./src/dag/dag-visibility";
 import { registerPmCommands } from "./src/pm-commands";
 import { registerRoleCommands } from "./src/role-commands";
 import { buildRolePersonaPrompt, parseActiveRoleFromBranch } from "./src/active-role";
+import { loadPresets, buildPresetInjection, makeSavePresetTool } from "./src/presets";
 // (agent-end-fallback module removed C5 — dead code, not wired; the child loads
 // its own extension instance so a same-process fallback was never reachable.)
 
@@ -42,6 +44,9 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // role sessions does not collide. activeRole is populated at spawn_role time.
   const reportState: ReportState = { reported: new Set<string>(), activeRole: new Map<string, string>(), payloads: new Map() };
   pi.registerTool(makeReportTool({ state: reportState, schema: DEFAULT_REPORT_SCHEMA, failedStep: "default" }) as any);
+
+  // Phase 2: save_preset tool (固化机制, 抄 Claude plugin-dev 四段式精简版)
+  pi.registerTool(makeSavePresetTool() as any);
 
   // Self-written execution layer (replaces @gotgenes/pi-subagents).
   // SpawnDeps wires pi's PUBLIC primitives: SessionManager.create + createAgentSession.
@@ -127,10 +132,23 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // handler runs in the extension chain after those extensions (load order); an
   // active pi-goal does NOT block role switching (the two are orthogonal).
   pi.on("before_agent_start", async (event) => {
-    if (!activeRole) return;
-    const role = roleRegistry.get(activeRole);
-    if (!role) return;
-    return { systemPrompt: event.systemPrompt + buildRolePersonaPrompt(role) };
+    if (activeRole) {
+      const role = roleRegistry.get(activeRole);
+      if (role) {
+        return { systemPrompt: event.systemPrompt + buildRolePersonaPrompt(role) };
+      }
+    }
+    // Phase 2: main agent (no active role) — inject preset summary + routing hint
+    // so presetLoader is not overridden by pi-goal taskRoutingBlock (M1 must-fix).
+    // Sources: builtin (pi-roles repo presets/) < user (~/.pi/agent/presets/) < project (.pi/presets/).
+    const builtinPresetDir = path.join(__dirname, "presets");
+    const userPresetDir = path.join(os.homedir(), ".pi", "agent", "presets");
+    const projectPresetDir = path.join(process.cwd(), ".pi", "presets");
+    const { presets } = loadPresets(builtinPresetDir, userPresetDir, projectPresetDir);
+    const injection = buildPresetInjection(presets);
+    if (injection) {
+      return { systemPrompt: event.systemPrompt + injection };
+    }
   });
 
   // session_start + session_tree: reconstruct activeRole from the session branch
