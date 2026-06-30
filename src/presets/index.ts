@@ -1,5 +1,5 @@
 export { loadPresets } from "./loader";
-export { reviewPresetContent } from "./creator";
+export { reviewPresetContent, buildSemanticReviewTask } from "./creator";
 export { buildPresetInjection } from "./injector";
 export { makeSavePresetTool } from "./save-preset-tool";
 export type {

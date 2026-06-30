@@ -14,7 +14,7 @@ import { makeRoleSessionStartHandler } from "./src/subagent/session-start-handle
 import { makeAutoCompactHandler } from "./src/subagent/auto-compact-handler";
 import { makeOutputContractEnforcer } from "./src/subagent/output-contract-enforcer";
 import { makeOutputContractProactiveHandler } from "./src/subagent/output-contract-proactive";
-import { makeDagExecuteTool } from "./src/dag/dag-execute-tool";
+import { makeDagExecuteTool, buildSpawnFn } from "./src/dag/dag-execute-tool";
 import { makeDagResumeTool } from "./src/dag/dag-resume-tool";
 import { createDagVisibility } from "./src/dag/dag-visibility";
 import { registerPmCommands } from "./src/pm-commands";
@@ -45,8 +45,9 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   const reportState: ReportState = { reported: new Set<string>(), activeRole: new Map<string, string>(), payloads: new Map() };
   pi.registerTool(makeReportTool({ state: reportState, schema: DEFAULT_REPORT_SCHEMA, failedStep: "default" }) as any);
 
-  // Phase 2: save_preset tool (固化机制, 抄 Claude plugin-dev 四段式精简版)
-  pi.registerTool(makeSavePresetTool() as any);
+  // Phase 2: save_preset tool (固化机制, 抄 Claude plugin-dev 四段式)
+  // C1 两段式: 纯函数预筛 + spawn reviewer 语义判断。spawnFn 在 service 定义后接。
+  // (makeSavePresetTool 移到 service 后, 因需 spawnFn)
 
   // Self-written execution layer (replaces @gotgenes/pi-subagents).
   // SpawnDeps wires pi's PUBLIC primitives: SessionManager.create + createAgentSession.
@@ -103,6 +104,17 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     reportState,
     cwd: dagCwd,
     agentDir: dagAgentDir,
+  }) as any);
+
+  // Phase 2 save_preset tool (C1 两段式: 纯函数预筛 + spawn reviewer 语义判断)
+  // spawnFn 用 buildSpawnFn(对齐 dag_execute 先例), deps 与 dag 共用
+  const savePresetSpawnFn = buildSpawnFn(
+    { roleRegistry, service, reportState, cwd: dagCwd, agentDir: dagAgentDir },
+    {},
+  );
+  pi.registerTool(makeSavePresetTool({
+    spawnFn: savePresetSpawnFn,
+    existingPresets: [],  // 动态读 builtin 太重, 空数组让 reviewer 从 task prompt 描述看(实际 reviewer 可 read presets/ dir)
   }) as any);
 
   // DAG execution visibility: render a live DAG status graph (nodes + wave + dep

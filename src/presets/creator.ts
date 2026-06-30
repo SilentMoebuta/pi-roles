@@ -55,3 +55,38 @@ export function reviewPresetContent(input: ReviewInput): ReviewResult {
 
 	return { approved: reasons.length === 0, reasons };
 }
+
+/**
+ * C1: 构建 spawn reviewer 的语义审查 task prompt(第二段审查)。
+ * 纯函数预筛(机械合规)过后, spawn reviewer 做语义判断(非机械 regex):
+ * - 步骤是否合理(不是机械能判的)
+ * - 是否与现有 preset 重复
+ * - description 是否准确描述内容
+ * - 步骤有无遗漏/逻辑漏洞
+ * 这是主观判断, LLM 可能误判(防低质沉淀但非完美)。
+ * 审查规则经 task prompt 传入 spawn reviewer(复用现有 role, Phase2a 设计模式)。
+ */
+export function buildSemanticReviewTask(input: {
+	name: string;
+	description: string;
+	taskType: string;
+	content: string;
+	existingPresets: string[];
+}): string {
+	return (
+		"You are reviewing a preset before it is saved to the preset library. " +
+		"Apply SEMANTIC judgment (not mechanical regex) on these dimensions:\n\n" +
+		`Preset under review: ${input.name} (task_type: ${input.taskType})\n` +
+		`Description: ${input.description}\n` +
+		`Content:\n---\n${input.content}\n---\n\n` +
+		`Existing presets in library (check for duplication): ${input.existingPresets.join(", ") || "(none)"}\n\n` +
+		"Evaluate:\n" +
+		"1. STEP SOUNDNESS: Are the workflow steps reasonable and actionable? Not vague placeholders?\n" +
+		"2. DUPLICATION: Does this preset duplicate an existing preset's purpose? (Check against the existing list above.)\n" +
+		"3. DESCRIPTION ACCURACY: Does the description accurately describe what the preset does? Not misleading or empty?\n" +
+		"4. MISSING/LOGIC GAPS: Are there missing steps or logic holes that would make the workflow fail or confuse?\n\n" +
+		"Return APPROVED if the preset is semantically sound on all 4 dimensions. " +
+		"Return REJECTED with specific, actionable feedback if any dimension fails. " +
+		"Be honest — this prevents low-quality presets from accumulating in the library."
+	);
+}

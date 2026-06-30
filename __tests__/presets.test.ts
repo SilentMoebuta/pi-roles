@@ -162,8 +162,8 @@ describe("reviewPresetContent (compliance whitelist + no-garbage)", () => {
 	});
 });
 
-describe("buildPresetInjection", () => {
-	it("returns injection text with preset summary table and routing hint", () => {
+	describe("buildPresetInjection", () => {
+	it("returns injection text with preset summary table (A2 decoupled: no routing hint)", () => {
 		const presets: Preset[] = [
 			{ name: "research", description: "Research workflow", taskType: "research", source: "builtin",
 				allowedRoles: ["researcher"], allowedTools: [], version: "1.0", author: "pi", filePath: "/x" },
@@ -174,9 +174,9 @@ describe("buildPresetInjection", () => {
 		assert.ok(inj.includes("research"), "missing research preset");
 		assert.ok(inj.includes("pm-discovery"), "missing pm-discovery preset");
 		assert.ok(inj.includes("PRESET") || inj.includes("preset"), "missing preset header");
-		// routing priority hint: prioritize preset > TASK-ROUTING > on-miss generation
-		assert.ok(/priority|prioritize|first/i.test(inj), "missing routing priority hint");
-		assert.ok(inj.includes("TASK-ROUTING"), "missing TASK-ROUTING reference");
+		// A2 解耦: preset 注入不再含路由提示(路由归 taskRoutingBlock 一处讲)
+		assert.ok(!/Routing priority/i.test(inj), "should NOT contain routing priority (decoupled)");
+		assert.ok(!/prioritize preset/i.test(inj), "should NOT contain prioritize-preset (decoupled)");
 	});
 
 	it("returns empty string when no presets (no injection)", () => {
@@ -188,7 +188,9 @@ describe("save_preset tool (write/confirm/source-routing)", () => {
 	// Tool-level tests (PROCESS GAP closure: approver flagged tool write/confirm/
 	// source-routing path was runtime-smoke-verified but unprotected by automated tests).
 	function runTool(userDir: string, params: Record<string, unknown>) {
-		const tool = makeSavePresetTool({ userPresetDir: userDir });
+		// C1: mock spawnFn 返回 APPROVED(模拟 reviewer 语义审查通过)
+		const mockSpawnFn = (async () => ({ result: "APPROVED. Steps are sound, no duplication, description accurate, no gaps." })) as any;
+		const tool = makeSavePresetTool({ userPresetDir: userDir, spawnFn: mockSpawnFn });
 		// defineTool wraps execute; reach the inner fn via the tool object.
 		const inner = (tool as any).execute ?? (tool as any).handler ?? tool;
 		return inner("id", params, undefined, undefined, {});
