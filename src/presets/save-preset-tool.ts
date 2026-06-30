@@ -121,7 +121,7 @@ export function makeSavePresetTool(opts: SavePresetToolOptions = {}) {
 				return {
 					content: [{
 						type: "text" as const,
-						text: `Preset saved to ${filePath}.\nIt will be picked up by loadPresets on next session (hot-reload via re-scan).`,
+						text: `Preset saved to ${filePath}.\nNote: loaded on NEXT session start (loadPresets scans at session init, not real-time). Read file directly or restart to use this session.`,
 					}],
 					details: { approved: true, saved: true, filePath },
 				};

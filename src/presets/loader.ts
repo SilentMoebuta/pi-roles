@@ -1,10 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import ignore from "ignore";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import type { Preset, PresetFrontmatter, PresetSourceType, PresetTaskType } from "./types";
 
 const LEGAL_TASK_TYPES: PresetTaskType[] = ["coding", "research", "pm", "review", "debug"];
 const LEGAL_SOURCES: PresetSourceType[] = ["builtin", "user", "agent"];
+const IGNORE_FILE_NAMES = [".gitignore", ".ignore", ".fdignore"]; // B1: 对齐 pi-core loadSkillsFromDir
 
 function isLegalTaskType(s: string): s is PresetTaskType {
 	return (LEGAL_TASK_TYPES as string[]).includes(s);
@@ -46,7 +48,16 @@ function loadPresetFile(filePath: string): Preset | null {
 function scanDir(dir: string): Preset[] {
 	if (!dir || !fs.existsSync(dir)) return [];
 	const out: Preset[] = [];
-	// ponytail:极简版不处理 .gitignore, 仅扫顶层 *.md (preset 库平铺, 不深递归)
+	// B1: 处理 .gitignore (对齐 pi-core loadSkillsFromDir, 抄调研 injection_filtering 未提但 Phase2a caveat 标注的补)
+	const ig = ignore();
+	for (const ignoreFile of IGNORE_FILE_NAMES) {
+		const ignorePath = path.join(dir, ignoreFile);
+		if (fs.existsSync(ignorePath)) {
+			try {
+				ig.add(fs.readFileSync(ignorePath, "utf8"));
+			} catch { /* best-effort */ }
+		}
+	}
 	let entries: fs.Dirent[];
 	try {
 		entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -55,6 +66,7 @@ function scanDir(dir: string): Preset[] {
 	}
 	for (const e of entries) {
 		if (!e.isFile() || !e.name.endsWith(".md")) continue;
+		if (ig.ignores(e.name)) continue; // B1: skip gitignored
 		const p = loadPresetFile(path.join(dir, e.name));
 		if (p) out.push(p);
 	}
@@ -65,7 +77,7 @@ function scanDir(dir: string): Preset[] {
  * Load presets from builtin dir (pi-roles repo) + user dir + project dir.
  * Priority: builtin < user < project (project overrides user overrides builtin
  * on name collision, 抄 Factory "project 覆盖 personal").
- * 极简版 caveat: 不处理 .gitignore; preset 库平铺单层不深递归。后续若有需求再补。
+ * B1: 处理 .gitignore (对齐 pi-core loadSkillsFromDir, 补 Phase2a caveat)。
  */
 export function loadPresets(builtinDir: string, userDir: string, projectDir: string): { presets: Preset[] } {
 	const byName = new Map<string, Preset>();
