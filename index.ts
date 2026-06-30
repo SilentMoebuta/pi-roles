@@ -131,7 +131,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // Role persona chains AFTER pi-goal governance + superpowers because this
   // handler runs in the extension chain after those extensions (load order); an
   // active pi-goal does NOT block role switching (the two are orthogonal).
-  pi.on("before_agent_start", async (event) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     if (activeRole) {
       const role = roleRegistry.get(activeRole);
       if (role) {
@@ -141,6 +141,10 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     // Phase 2: main agent (no active role) — inject preset summary + routing hint
     // so presetLoader is not overridden by pi-goal taskRoutingBlock (M1 must-fix).
     // Sources: builtin (pi-roles repo presets/) < user (~/.pi/agent/presets/) < project (.pi/presets/).
+    // Skip subagents (parentSession set) — design §3.2 main-agent-only; children
+    // load own pi-roles instance, injecting there would double-pay tokens.
+    const header = (ctx as any)?.sessionManager?.getHeader?.();
+    if (header?.parentSession) return;
     const builtinPresetDir = path.join(__dirname, "presets");
     const userPresetDir = path.join(os.homedir(), ".pi", "agent", "presets");
     const projectPresetDir = path.join(process.cwd(), ".pi", "presets");

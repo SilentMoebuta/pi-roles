@@ -8,6 +8,7 @@ import {
 	loadPresets,
 	reviewPresetContent,
 	buildPresetInjection,
+	makeSavePresetTool,
 	type Preset,
 } from "../src/presets/index";
 
@@ -180,5 +181,58 @@ describe("buildPresetInjection", () => {
 
 	it("returns empty string when no presets (no injection)", () => {
 		assert.equal(buildPresetInjection([]), "");
+	});
+});
+
+describe("save_preset tool (write/confirm/source-routing)", () => {
+	// Tool-level tests (PROCESS GAP closure: approver flagged tool write/confirm/
+	// source-routing path was runtime-smoke-verified but unprotected by automated tests).
+	function runTool(userDir: string, params: Record<string, unknown>) {
+		const tool = makeSavePresetTool({ userPresetDir: userDir });
+		// defineTool wraps execute; reach the inner fn via the tool object.
+		const inner = (tool as any).execute ?? (tool as any).handler ?? tool;
+		return inner("id", params, undefined, undefined, {});
+	}
+
+	it("confirm=false previews review without writing", async () => {
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "save-preset-"));
+		try {
+			const r = await runTool(tmp, {
+				name: "x", description: "x", task_type: "research",
+				source: "agent", content: "ok", confirm: false,
+			});
+			const text = r.content[0].text;
+			assert.ok(/APPROVED/i.test(text), "should be approved");
+			assert.ok(!fs.existsSync(path.join(tmp, "x.md")), "should NOT write on confirm=false");
+		} finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+	});
+
+	it("confirm=true writes to user dir after review passes + hot-reload", async () => {
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "save-preset-"));
+		try {
+			const r = await runTool(tmp, {
+				name: "myflow", description: "my flow", task_type: "pm",
+				source: "agent", content: "# steps", confirm: true,
+			});
+			const filePath = path.join(tmp, "myflow.md");
+			assert.ok(fs.existsSync(filePath), "should write on confirm=true");
+			// hot-reload: loadPresets picks up the written file
+			const { presets } = loadPresets("", tmp, "");
+			assert.ok(presets.some((p) => p.name === "myflow"), "written preset should be loadable");
+			assert.equal(r.details.saved, true);
+		} finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+	});
+
+	it("rejects (review fail) → no write", async () => {
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "save-preset-"));
+		try {
+			const r = await runTool(tmp, {
+				name: "BadName", description: "x", task_type: "research",
+				source: "agent", content: "ok", confirm: true, // even with confirm=true
+			});
+			assert.equal(r.details.approved, false);
+			assert.ok(!fs.existsSync(path.join(tmp, "BadName.md")), "should NOT write on rejection");
+			assert.ok(/REJECTED/i.test(r.content[0].text));
+		} finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 	});
 });
