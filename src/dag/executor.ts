@@ -86,6 +86,17 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
       signal.addEventListener("abort", onAbort);
     });
 
+  const skipReasons = new Map<string, string>();
+  const mergePayloads = (payloads: NodePayload[]): NodePayload => {
+    const merged: NodePayload = {
+      findings: payloads.flatMap((r) => r.findings),
+      artifacts: payloads.flatMap((r) => r.artifacts),
+    };
+    // ponytail: single-handle nodes are the routing case; preserve their custom fields.
+    if (payloads.length === 1) Object.assign(merged, payloads[0], { findings: merged.findings, artifacts: merged.artifacts });
+    return merged;
+  };
+
   for (let wi = startWaveIndex; wi < waves.length; wi++) {
     const wave = waves[wi];
     // SOTA gap #2: between-wave abort — skip remaining waves if caller cancelled.
@@ -102,6 +113,9 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
     // A node may be static (1 handle) or dynamic (Phase 5c: returns Send[] → N handles).
     const spawned = await Promise.allSettled(
       wave.nodes.map(async (n) => {
+        if (skipReasons.has(n.id)) {
+          return { nodeId: n.id, skipped: true, reason: skipReasons.get(n.id)! };
+        }
         await acquire();
         // SOTA gap #2: abort check after semaphore acquire (yield point).
         if (opts.signal?.aborted) { release(); throw new Error("aborted"); }
@@ -160,7 +174,8 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
     // Partition: rejected spawns → immediate failed NodeResult; fulfilled → wait.
     const successes: NodeResult[] = [];
     const failures: NodeResult[] = [];
-    const toWait: { nodeId: string; handles: SpawnHandle[]; timeoutMs?: number }[] = [];
+    const skipped: NodeResult[] = [];
+    const toWait: { nodeId: string; handles: SpawnHandle[]; timeoutMs?: number; routes?: Record<string, string[]> }[] = [];
     spawned.forEach((res, i) => {
       const nodeId = wave.nodes[i].id;
       if (res.status === "rejected") {
@@ -168,8 +183,12 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
         const nr: NodeResult = { nodeId, status: "failed", error: err };
         failures.push(nr);
         nodeResults.set(nodeId, nr);
+      } else if ((res.value as any).skipped) {
+        const nr: NodeResult = { nodeId, status: "skipped", error: (res.value as any).reason };
+        skipped.push(nr);
+        nodeResults.set(nodeId, nr);
       } else {
-        toWait.push({ nodeId, handles: res.value.handles, timeoutMs: wave.nodes[i].timeout_ms });
+        toWait.push({ nodeId, handles: (res.value as any).handles, timeoutMs: wave.nodes[i].timeout_ms, routes: wave.nodes[i].routes });
       }
     });
 
@@ -189,7 +208,7 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
     ));
     // Map each settled result back to its nodeId (handles were flattened in toWait order).
     let flatIdx = 0;
-    for (const { nodeId, handles } of toWait) {
+    for (const { nodeId, handles, routes } of toWait) {
       const subResults: NodePayload[] = [];
       let subError: string | undefined;
       let allCompleted = true;
@@ -208,13 +227,40 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
         }
       }
       if (allCompleted) {
+        const mergedResult = mergePayloads(subResults);
+        if (routes) {
+          const route = mergedResult.route;
+          if (typeof route !== "string" || route.length === 0) {
+            for (const target of new Set(Object.values(routes).flat())) {
+              if (!nodeResults.has(target)) skipReasons.set(target, `routing node '${nodeId}' failed: missing route`);
+            }
+            const nr: NodeResult = { nodeId, status: "failed", error: "missing route in node result" };
+            failures.push(nr);
+            nodeResults.set(nodeId, nr);
+            continue;
+          }
+          const selected = routes[route];
+          if (!selected) {
+            for (const target of new Set(Object.values(routes).flat())) {
+              if (!nodeResults.has(target)) skipReasons.set(target, `routing node '${nodeId}' failed: unknown route '${route}'`);
+            }
+            const nr: NodeResult = { nodeId, status: "failed", error: `unknown route '${route}'` };
+            failures.push(nr);
+            nodeResults.set(nodeId, nr);
+            continue;
+          }
+          const selectedSet = new Set(selected);
+          const allTargets = new Set(Object.values(routes).flat());
+          for (const target of allTargets) {
+            if (!selectedSet.has(target) && !nodeResults.has(target)) {
+              skipReasons.set(target, `route '${route}' from '${nodeId}' did not select '${target}'`);
+            }
+          }
+        }
         const merged: NodeResult = {
           nodeId,
           status: "completed",
-          result: {
-            findings: subResults.flatMap((r) => r.findings),
-            artifacts: subResults.flatMap((r) => r.artifacts),
-          },
+          result: mergedResult,
         };
         successes.push(merged);
         nodeResults.set(nodeId, merged);
@@ -225,11 +271,12 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
       }
     }
 
-    waveResults.push({ wave: wave.index, successes, failures });
+    waveResults.push({ wave: wave.index, successes, failures, skipped });
     // Emit progress: wave settled — per-node final status.
-    const settledStatus: Record<string, { status: "completed" | "failed"; error?: string }> = {};
+    const settledStatus: Record<string, { status: "completed" | "failed" | "skipped"; error?: string }> = {};
     for (const s of successes) settledStatus[s.nodeId] = { status: "completed" };
     for (const f of failures) settledStatus[f.nodeId] = { status: "failed", error: f.error };
+    for (const s of skipped) settledStatus[s.nodeId] = { status: "skipped", error: s.error };
     opts.onProgress?.({ dagId: "", currentWave: wi, totalWaves: waves.length, nodes: settledStatus });
   }
 

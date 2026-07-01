@@ -38,6 +38,10 @@ export interface DAGNode {
    *  takes longer than this, it is marked failed with errorType:"timeout"
    *  (LangGraph/OpenCode/Claude/Codex all have equivalents). */
   timeout_ms?: number;
+  /** B-class dynamic routing: node result payload must contain `route`, which
+   *  selects one key from this whitelist. Selected target nodes run; unselected
+   *  targets are marked skipped. Targets must be downstream dependents. */
+  routes?: Record<string, string[]>;
 }
 
 export interface DAGSpec {
@@ -54,7 +58,7 @@ export interface NodePayload {
 
 export interface NodeResult {
   nodeId: string;
-  status: "completed" | "failed";
+  status: "completed" | "failed" | "skipped";
   result?: NodePayload;
   error?: string;
 }
@@ -63,6 +67,7 @@ export interface WaveResult {
   wave: number;
   successes: NodeResult[];
   failures: NodeResult[];
+  skipped?: NodeResult[];
 }
 
 // (C5: ErrorContext interface removed — zero consumers; the executor propagates
@@ -80,5 +85,5 @@ export interface DAGProgress {
   dagId: string;
   currentWave: number;
   totalWaves: number;
-  nodes: Record<string, { status: "queued" | "running" | "completed" | "failed"; error?: string }>;
+  nodes: Record<string, { status: "queued" | "running" | "completed" | "failed" | "skipped"; error?: string }>;
 }

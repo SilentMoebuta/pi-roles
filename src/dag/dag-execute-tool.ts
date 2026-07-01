@@ -45,6 +45,7 @@ const Params = Type.Object({
       depends_on: Type.Optional(Type.Array(Type.String())),
       model: Type.Optional(Type.String({ description: "Per-node model override (e.g. 'deepseek/deepseek-v4-flash'). Wins over role.frontmatter model + roleDef.model. Omit → role/default. Service-mode: caller threads --model X to every node." })),
       thinkingLevel: Type.Optional(Type.String({ description: "Per-node thinkingLevel override ('low'|'medium'|'high'|'xhigh'|'off'). 'off' disables thinking for speed. Wins over role's." })),
+      routes: Type.Optional(Type.Record(Type.String(), Type.Array(Type.String()), { description: "B-class conditional routing whitelist. The node result payload must include route:<key>; selected target ids run, unselected route targets are skipped. Targets must be downstream dependents." })),
     })),
   }),
   maxConcurrent: Type.Optional(Type.Number({ description: "Max concurrent spawns per wave (default 5). Caps parallel createAgentSession calls to prevent resource exhaustion." })),

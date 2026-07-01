@@ -100,4 +100,61 @@ describe("dag executor (waves + barrier + partial failure)", () => {
     assert.match(r.waves[0].failures[0].error ?? "", /spawn rejected/);
     assert.equal(r.waves[0].successes.length, 1, "sibling b still spawned + completed (spawn-phase isolation)");
   });
+  it("routes to the selected branch and skips unselected branch nodes", async () => {
+    const spec: DAGSpec = { nodes: {
+      decide: { role: "reviewer", task: "[node:decide] choose", routes: { accept: ["accept"], revise: ["revise"] } },
+      accept: { role: "coder", task: "[node:accept] accept", depends_on: ["decide"] },
+      revise: { role: "coder", task: "[node:revise] revise", depends_on: ["decide"] },
+    }};
+    const spawned: string[] = [];
+    const spawnFn: SpawnFn = async (_role, task) => {
+      const nodeId = task.match(/\[node:([^\]]+)\]/)![1];
+      spawned.push(nodeId);
+      const result = nodeId === "decide"
+        ? { findings: ["choose accept"], artifacts: [], route: "accept" }
+        : { findings: [`${nodeId} ran`], artifacts: [] };
+      return { agentId: nodeId, wait: async () => ({ status: "completed" as const, result, reportPayload: result }) };
+    };
+
+    const r = await executeDAG(spec, spawnFn);
+
+    assert.equal(r.status, "completed");
+    assert.deepEqual(spawned, ["decide", "accept"], "unselected revise node was not spawned");
+    assert.equal(r.waves[1].successes[0].nodeId, "accept");
+    assert.equal(r.waves[1].skipped?.[0].nodeId, "revise");
+    assert.equal(r.waves[1].skipped?.[0].status, "skipped");
+    assert.ok(!("revise" in r.finalContext), "skipped node absent from finalContext");
+  });
+
+  it("unknown route fails the branch node", async () => {
+    const spec: DAGSpec = { nodes: {
+      decide: { role: "reviewer", task: "[node:decide] choose", routes: { accept: ["accept"] } },
+      accept: { role: "coder", task: "[node:accept] accept", depends_on: ["decide"] },
+    }};
+    const r = await executeDAG(spec, async (_role, task) => {
+      const nodeId = task.match(/\[node:([^\]]+)\]/)![1];
+      const result = { findings: [], artifacts: [], route: "missing" };
+      return { agentId: nodeId, wait: async () => ({ status: "completed" as const, result, reportPayload: result }) };
+    });
+
+    assert.equal(r.status, "partial");
+    assert.match(r.waves[0].failures[0].error ?? "", /unknown route 'missing'/);
+    assert.equal(r.waves[1].skipped?.[0].nodeId, "accept");
+  });
+
+  it("missing route fails a routing node", async () => {
+    const spec: DAGSpec = { nodes: {
+      decide: { role: "reviewer", task: "[node:decide] choose", routes: { accept: ["accept"] } },
+      accept: { role: "coder", task: "[node:accept] accept", depends_on: ["decide"] },
+    }};
+    const r = await executeDAG(spec, async (_role, task) => {
+      const nodeId = task.match(/\[node:([^\]]+)\]/)![1];
+      const result = { findings: [], artifacts: [] };
+      return { agentId: nodeId, wait: async () => ({ status: "completed" as const, result, reportPayload: result }) };
+    });
+
+    assert.equal(r.status, "partial");
+    assert.match(r.waves[0].failures[0].error ?? "", /missing route/);
+    assert.equal(r.waves[1].skipped?.[0].nodeId, "accept");
+  });
 });

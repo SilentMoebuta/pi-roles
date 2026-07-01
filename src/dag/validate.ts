@@ -24,7 +24,30 @@ export function validateDAG(spec: DAGSpec): DAGValidation {
     }
   }
 
-  // 2. Check for circular deps (Kahn's algorithm would detect this; we do it eagerly
+  // 2. Route whitelist validation (B-class dynamic routing). Targets must be
+  // existing downstream dependents so routing cannot create runtime topology or loops.
+  for (const [id, node] of Object.entries(spec.nodes)) {
+    if (node.routes && (node.dynamic || node.sends)) {
+      errors.push(`node '${id}' cannot combine routes with dynamic/sends`);
+    }
+    for (const [routeName, targets] of Object.entries(node.routes ?? {})) {
+      if (!Array.isArray(targets)) {
+        errors.push(`node '${id}' route '${routeName}' must be an array of target node ids`);
+        continue;
+      }
+      for (const target of targets) {
+        if (!spec.nodes[target]) {
+          errors.push(`node '${id}' route '${routeName}' target '${target}' does not exist in spec.nodes`);
+          continue;
+        }
+        if (!(spec.nodes[target].depends_on ?? []).includes(id)) {
+          errors.push(`node '${id}' route '${routeName}' target '${target}' must depend_on '${id}' (routes are downstream-only)`);
+        }
+      }
+    }
+  }
+
+  // 3. Check for circular deps (Kahn's algorithm would detect this; we do it eagerly
   //    for a clear error message before any execution).
   //    Build reverse graph: for each node, count distinct ancestors via DFS.
   //    If node appears in its own ancestor chain, it's circular.
@@ -50,7 +73,7 @@ export function validateDAG(spec: DAGSpec): DAGValidation {
   }
   for (const id of nodeIds) getAncestors(id, new Set());
 
-  // 3. Check that all nodes are reachable from root (nodes with no deps).
+  // 4. Check that all nodes are reachable from root (nodes with no deps).
   //    Unreachable nodes have unsatisfiable deps (e.g. dep on a node that was
   //    removed or renamed). The planner (Kahn) would never schedule them, but
   //    we report the error early so the caller knows which node is orphaned.

@@ -82,4 +82,29 @@ describe("validateDAG — pre-flight DAG spec validation", () => {
     assert.equal(v.ok, false);
     assert.ok(v.errors.length >= 2, `should report at least 2 errors, got ${v.errors.length}: ${v.errors}`);
   });
+  it("routes must target existing downstream nodes", () => {
+    const missing: DAGSpec = { nodes: {
+      decide: { role: "reviewer", task: "t", routes: { accept: ["ghost"] } },
+    }};
+    const missingResult = validateDAG(missing);
+    assert.equal(missingResult.ok, false);
+    assert.ok(missingResult.errors.some(e => /route.*ghost.*does not exist/i.test(e)));
+
+    const notDownstream: DAGSpec = { nodes: {
+      decide: { role: "reviewer", task: "t", routes: { accept: ["accept"] } },
+      accept: { role: "coder", task: "t" },
+    }};
+    const downstreamResult = validateDAG(notDownstream);
+    assert.equal(downstreamResult.ok, false);
+    assert.ok(downstreamResult.errors.some(e => /route.*accept.*must depend_on 'decide'/i.test(e)));
+  });
+
+  it("routes cannot be mixed with dynamic fan-out nodes", () => {
+    const spec: DAGSpec = { nodes: {
+      decide: { role: "reviewer", task: "t", routes: { accept: [] }, sends: [{ role: "coder", task: "x" }] } as any,
+    }};
+    const v = validateDAG(spec);
+    assert.equal(v.ok, false);
+    assert.ok(v.errors.some(e => /cannot combine routes with dynamic\/sends/i.test(e)));
+  });
 });

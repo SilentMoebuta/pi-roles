@@ -20,6 +20,8 @@ export interface PlannedNode {
   sends?: import("./send").Send[];
   /** SOTA gap #1: carried from DAGNode.timeout_ms for per-node timeout. */
   timeout_ms?: number;
+  /** B-class conditional routing whitelist carried from DAGNode.routes. */
+  routes?: Record<string, string[]>;
 }
 
 export interface Wave {
@@ -54,7 +56,7 @@ export function planWaves(spec: DAGSpec): Wave[] {
       index: waveIndex++,
       nodes: ready.map((id) => {
         const n = spec.nodes[id];
-        return { id, role: n.role, roleDef: n.roleDef, task: n.task, model: n.model, thinkingLevel: n.thinkingLevel, deps: n.depends_on ?? [], dynamic: n.dynamic, sends: n.sends, timeout_ms: n.timeout_ms };
+        return { id, role: n.role, roleDef: n.roleDef, task: n.task, model: n.model, thinkingLevel: n.thinkingLevel, deps: n.depends_on ?? [], dynamic: n.dynamic, sends: n.sends, timeout_ms: n.timeout_ms, routes: n.routes };
       }),
     });
     for (const id of ready) {
