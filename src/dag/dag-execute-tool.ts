@@ -109,6 +109,7 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
       noSkills: false,
       skillsOverride: makeRoleSkillsOverride({ domainSkills }),
     } as any);
+    await resourceLoader.reload();
 
     // Per-node ReportState — isolated so one child's payload doesn't pollute another's.
     const childReportState: ReportState = { reported: new Set(), activeRole: new Map(), payloads: new Map() };

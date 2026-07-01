@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 import { makeDagExecuteTool } from "../src/dag/dag-execute-tool";
 import type { RoleDef } from "../src/roles";
 import type { ReportState } from "../src/report-tool";
@@ -93,5 +94,26 @@ describe("dag_execute tool (Gap A)", () => {
     assert.equal(bSpawn.role, "reviewer", "role-bearing node spawned with role");
     assert.ok(aSpawn.tools.includes("write"), "default has write");
     assert.ok(!bSpawn.tools.includes("write"), "reviewer whitelist excludes write");
+  });
+  it("reloads child resourceLoader before spawning DAG role so ext tools are registered", async () => {
+    const origReload = DefaultResourceLoader.prototype.reload;
+    let reloadCalls = 0;
+    DefaultResourceLoader.prototype.reload = async function () { reloadCalls++; } as any;
+    try {
+      const spawned: any[] = [];
+      const svc = fakeService(spawned);
+      const roleRegistry = new Map<string, RoleDef>();
+      roleRegistry.set("researcher", role("researcher", { tools: ["read", "bash", "web_search"] }));
+      const tool = makeDagExecuteTool({ roleRegistry, service: svc, reportState: { reported: new Set(), activeRole: new Map(), payloads: new Map() }, cwd: "/tmp", agentDir: "/tmp" });
+
+      const result = await tool.execute("tc-reload", { spec: { nodes: { research: { role: "researcher", task: "use web_search" } } } }, undefined, undefined, {} as any);
+
+      assert.equal((result.details as any).status, "completed");
+      assert.equal(spawned.length, 1);
+      assert.ok(spawned[0].tools.includes("web_search"), "DAG role whitelist includes ext tool");
+      assert.ok(reloadCalls > 0, "resourceLoader.reload() called so ext tools load into child registry");
+    } finally {
+      DefaultResourceLoader.prototype.reload = origReload;
+    }
   });
 });
