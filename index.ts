@@ -200,18 +200,22 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     setActiveTools: (names) => pi.setActiveTools(names),
   }) as any);
 
-  // C1 fix: save_preset 是 Goal 1 新加工具, 主 session 创建时 initialActiveToolNames
-  // 不含它(老工具 spawn_role/dag_execute 在, 新的没加)。与 report_role_result 同样
-  // 的根因(createAgentSession 在 ext 注册前固定活跃集)。主 session_start 显式激活。
+  // C1 fix: pi-roles 注册的 agent-facing 工具在主 session 创建时不在
+  // initialActiveToolNames 里(只有 pi-core 内置 + 老工具 spawn_role/dag_execute
+  // 在)。根因: createAgentSession 在 ext 注册前固定活跃集。主 session_start
+  // 显式激活。第三次同型 bug (save_preset / 子session ext tools / dag_resume):
+  // 改用显式列表, 以后加主 session 工具只改这一处, 不再散落 active.add()。
+  // NOTE: report_role_result 是子 session 专用, 不在此列表。
+  const MAIN_SESSION_TOOLS = ["save_preset", "dag_resume"];
   pi.on("session_start", (_event, ctx) => {
     const sm = (ctx as any)?.sessionManager;
     let parentSession: string | undefined;
     try { parentSession = sm?.getHeader?.()?.parentSession; } catch { return; }
     if (parentSession) return; // 只主 session, 子 session 由 makeRoleSessionStartHandler 处理
     const active = new Set(pi.getActiveTools());
-    if (active.has("save_preset")) return; // idempotent
-    active.add("save_preset");
-    pi.setActiveTools(Array.from(active));
+    let added = false;
+    for (const t of MAIN_SESSION_TOOLS) { if (!active.has(t)) { active.add(t); added = true; } }
+    if (added) pi.setActiveTools(Array.from(active));
   });
 
   // P1-5: proactive compaction for role subagents (the researcher maxTurns:9999
