@@ -272,6 +272,19 @@ export class SubagentsService {
     // Optional-chain guards minimal test fakes that don't provide it.
     await session.bindExtensions?.({ mode: "print" });
 
+    // C1 同型 bug 修复 (子 session 版, 2026-07-01 B2 验证发现):
+    // createAgentSession 构造时 ext 工具(web_search/fetch_content/code_search/codegraph_*
+    // 等 pi-web-access/codegraph ext 提供)未注册, 被 setActiveToolsByName 过滤出活跃集。
+    // bindExtensions 后 ext 工具已注册, 但活跃集已固定不含它们。
+    // makeRoleSessionStartHandler 只 additively 加了 report_role_result, 没加 ext 工具。
+    // 结果: role 配了 ext 工具却调不到 (实测 researcher 报 web_search 'unknown tool',
+    // pm 绕道 bash+curl)。修法: bindExtensions 后重新应用完整 tools whitelist,
+    // 此时 ext 工具已注册不会过滤。force-include report_role_result 防 params.tools 不含它时丢失。
+    if (params.tools && session.setActiveToolsByName) {
+      const fullSet = Array.from(new Set([...params.tools, "report_role_result"]));
+      session.setActiveToolsByName(fullSet);
+    }
+
     try { await hooks.emit("subagent_spawn:after", { id, role: params.role, task: params.task, parentSessionId: params.parentSessionId, sessionFile: spawnResult.sessionFile }); } catch {}
 
     outcome = await runSubagent(session, params.task, {
