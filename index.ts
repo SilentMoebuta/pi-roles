@@ -200,6 +200,20 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     setActiveTools: (names) => pi.setActiveTools(names),
   }) as any);
 
+  // C1 fix: save_preset 是 Goal 1 新加工具, 主 session 创建时 initialActiveToolNames
+  // 不含它(老工具 spawn_role/dag_execute 在, 新的没加)。与 report_role_result 同样
+  // 的根因(createAgentSession 在 ext 注册前固定活跃集)。主 session_start 显式激活。
+  pi.on("session_start", (_event, ctx) => {
+    const sm = (ctx as any)?.sessionManager;
+    let parentSession: string | undefined;
+    try { parentSession = sm?.getHeader?.()?.parentSession; } catch { return; }
+    if (parentSession) return; // 只主 session, 子 session 由 makeRoleSessionStartHandler 处理
+    const active = new Set(pi.getActiveTools());
+    if (active.has("save_preset")) return; // idempotent
+    active.add("save_preset");
+    pi.setActiveTools(Array.from(active));
+  });
+
   // P1-5: proactive compaction for role subagents (the researcher maxTurns:9999
   // cliff). A CHILD-side turn_end handler (the child loads its own pi-roles
   // instance — decisive fact — so this fires FOR the child, not the main agent).
