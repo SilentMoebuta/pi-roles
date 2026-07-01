@@ -72,6 +72,30 @@ describe("buildInlineRole (unit)", () => {
     const r = buildInlineRole({ name: "x", description: "d", prompt: "p", tools: ["read"], skills: ["foo"] } as any);
     assert.deepEqual(r.skills, [], "inline role never loads skills from disk");
   });
+
+  // P1 (full): enabling primitive — inline roleDef must be able to carry a
+  // custom report outputSchema (e.g. a `route` field for a router node).
+  // Without this passthrough, buildInlineRole drops outputSchema and the
+  // router's report_role_result schema can never advertise `route`.
+  it("passes outputSchema through so inline roles can declare custom report fields", () => {
+    const r = buildInlineRole({
+      name: "gate",
+      description: "router",
+      prompt: "p",
+      tools: ["read"],
+      outputSchema: {
+        type: "object",
+        required: ["findings", "artifacts", "route"],
+        properties: {
+          findings: { type: "array" },
+          artifacts: { type: "array" },
+          route: { type: "string" },
+        },
+      },
+    });
+    assert.equal(r.outputSchema?.properties.route?.type, "string");
+    assert.ok(r.outputSchema?.required.includes("route"));
+  });
 });
 
 describe("spawn_role with inline roleDef", () => {

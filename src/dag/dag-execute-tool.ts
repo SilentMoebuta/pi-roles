@@ -23,7 +23,7 @@ import type { DAGSpec, NodePayload } from "./types";
 import type { RoleDef } from "../roles";
 import type { ReportState } from "../report-tool";
 import { makeReportTool } from "../report-tool";
-import { DEFAULT_REPORT_SCHEMA } from "../contract";
+import { resolveRouteContract } from "./route-contract";
 import { makeRoleSkillsOverride } from "../subagent/skills-override";
 import type { SpawnToolService } from "../subagent/spawn-role-tool";
 
@@ -40,6 +40,11 @@ const Params = Type.Object({
         canSpawn: Type.Optional(Type.Boolean()),
         model: Type.Optional(Type.String()),
         thinkingLevel: Type.Optional(Type.String()),
+        outputSchema: Type.Optional(Type.Object({
+          type: Type.Literal("object"),
+          required: Type.Array(Type.String()),
+          properties: Type.Record(Type.String(), Type.Object({ type: Type.String() })),
+        }, { description: "Custom report_role_result schema for this ad-hoc role. Declare fields the role must return (e.g. a `route` string for a router node). Falls back to {findings, artifacts}. For nodes declaring `routes`, the `route` field is auto-merged — you don't need to declare it here unless you also want other custom fields." })),
       }, { description: "Inline role definition for ad-hoc expert dispatch (cce V4-style). No disk file. Mutually exclusive with role. Safe defaults: canSpawn=false, skills=[]." })),
       task: Type.String(),
       depends_on: Type.Optional(Type.Array(Type.String())),
@@ -88,13 +93,19 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
     } catch { /* no skills dir — skip */ }
   }
 
-  return async (roleName: string | undefined, task, roleDef?: InlineRoleDef, nodeModel?: string, nodeThinking?: string) => {
+  return async (roleName: string | undefined, task, roleDef?: InlineRoleDef, nodeModel?: string, nodeThinking?: string, routes?: Record<string, string[]>) => {
     const role = roleDef ? buildInlineRole(roleDef) : (roleName ? roleRegistry.get(roleName) : undefined);
     const effectiveName = role?.name ?? roleName; // roleDef.name for inline, roleName for registry, undefined for default
     // model 优先级: node.model (per-node override) > role.model (frontmatter/roleDef) > undefined (inherit main session)
     const modelRef = nodeModel ?? role?.model;
     // thinkingLevel 优先级: node.thinkingLevel > role.thinkingLevel > undefined
     const effectiveThinking = nodeThinking ?? role?.thinkingLevel;
+    // P1 (full): when a node declares `routes`, auto-wire the route contract —
+    // merge `route` (string, required) into the report schema and append a route
+    // contract suffix to the task. Without this the router's report_role_result
+    // schema only exposes {findings, artifacts} and the model never returns `route`
+    // (live-confirmed 2026-07-01: "missing route in node result").
+    const { schema: effReportSchema, task: effTask } = resolveRouteContract({ outputSchema: role?.outputSchema, task, routes });
     // If role unknown or omitted, spawn with defaults: full tool set + no persona.
     const childTools = role
       ? Array.from(new Set([...role.tools, "report_role_result"]))
@@ -114,7 +125,7 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
 
     // Per-node ReportState — isolated so one child's payload doesn't pollute another's.
     const childReportState: ReportState = { reported: new Set(), activeRole: new Map(), payloads: new Map() };
-    const childReportTool = makeReportTool({ state: childReportState, schema: role?.outputSchema ?? DEFAULT_REPORT_SCHEMA, failedStep: effectiveName ?? "default" });
+    const childReportTool = makeReportTool({ state: childReportState, schema: effReportSchema, failedStep: effectiveName ?? "default" });
     // T1-4: resolve the role's model via ctx.modelRegistry (was hardcoded undefined).
     const resolvedModel = modelRef && modelRegistry ? resolveModelRef(modelRef, modelRegistry) : undefined;
     // T1-4: caller sessionFile so DAG nodes join the tree-abort tree (was undefined).
@@ -122,7 +133,7 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
 
     const id = service.spawn({
       role: effectiveName,
-      task,
+      task: effTask,
       parentSessionId: callerSessionFile, // T1-4: was undefined — DAG nodes now join the abort tree
       tools: childTools,
       maxTurns: role?.maxTurns ?? 25,

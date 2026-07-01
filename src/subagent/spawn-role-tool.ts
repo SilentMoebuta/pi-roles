@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import type { RoleDef } from "../roles";
 import type { ReportState } from "../report-tool";
 import { makeReportTool } from "../report-tool";
-import { DEFAULT_REPORT_SCHEMA } from "../contract";
+import { DEFAULT_REPORT_SCHEMA, type ReportSchema } from "../contract";
 import { makeRoleSkillsOverride } from "./skills-override";
 import { discoverRoleSkillDirs } from "./role-skills-discovery";
 
@@ -98,6 +98,10 @@ export interface InlineRoleDef {
   canSpawn?: boolean;
   model?: string;
   thinkingLevel?: string;
+  /** P1 (full): custom report schema for this ad-hoc role's report_role_result.
+   *  Lets an inline router declare a `route` field (or any custom output) without
+   *  a disk role file. Falls back to DEFAULT_REPORT_SCHEMA ({findings, artifacts}). */
+  outputSchema?: ReportSchema;
 }
 
 /** Construct a RoleDef from an inline definition with safe defaults.
@@ -115,6 +119,7 @@ export function buildInlineRole(def: InlineRoleDef): RoleDef {
     teammates: [],
     model: def.model,
     thinkingLevel: def.thinkingLevel,
+    outputSchema: def.outputSchema,
   };
 }
 
