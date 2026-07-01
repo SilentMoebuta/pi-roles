@@ -288,6 +288,17 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
           : undefined,
       } as any);
 
+      // D-bug fix (2026-07-01 重验 bb93b74 发现的真根因): DefaultResourceLoader
+      // 构造时 extensionsResult={extensions:[]}(loaded=false), 必须 reload() 才加载
+      // ext(pi-web-access→web_search/fetch_content, pi-codegraph→codegraph_*, 等)。
+      // createAgentSession 收到 resourceLoader 不 reload(sdk.ts 只 !resourceLoader 分支
+      // 才 reload)。不 reload → ext 从未加载 → web_search 不进 _toolRegistry →
+      // setActiveToolsByName 的 `if(tool)` 过滤 → role 报 ext 工具 'unknown tool'。
+      // bb93b74 的 setActiveToolsByName 在 ext 未加载时治不了病 (registry 无 ext)。
+      // 修法: 构造后 reload(), ext 加载进 _toolRegistry, bindExtensions 内部 + bb93b74
+      // 的 setActiveToolsByName 才能保留 ext 工具。
+      await resourceLoader.reload();
+
       // Phase 5 report_role_result fix: the skillsOverride resourceLoader does NOT
       // register pi-roles' report_role_result tool (probed: isAllowedTool filters it
       // out of active tools even though childTools includes it). Register it directly

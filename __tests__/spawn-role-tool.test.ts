@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 import { makeSpawnRoleTool, type SpawnToolDeps } from "../src/subagent/spawn-role-tool";
 import type { RoleDef } from "../src/roles";
 import type { ReportState } from "../src/report-tool";
@@ -122,13 +123,21 @@ describe("spawn_role tool", () => {
       getAbortController: () => ({ abort: () => {} }),
     };
     const { tool } = deps({ roles: [role("reviewer")], svc });
-    const ac = new AbortController();
-    const execP = exec(tool, { role: "reviewer", task: "x" }, {}, ac.signal);
-    // Let spawn_role execute past service.spawn (registers the signal listener).
-    await new Promise((r) => setImmediate(r));
-    ac.abort(); // tool caller cancels
-    await withTimeout(execP, 2000, "spawn_role didn't settle after abort (T1-1 cancel wiring missing)");
-    assert.ok(abortCalls.includes("sig1"), "service.abort(id) called on tool signal (T1-1 cancel wiring)");
+    // D-bug fix 加了 reload() 在 service.spawn 前, 阻塞 setImmediate 时序。
+    // patch reload 成空 spy, 让 service.spawn 时序恢复 (本测试聚焦 signal wiring 非 reload)。
+    const origReload = DefaultResourceLoader.prototype.reload;
+    DefaultResourceLoader.prototype.reload = async function () {} as any;
+    try {
+      const ac = new AbortController();
+      const execP = exec(tool, { role: "reviewer", task: "x" }, {}, ac.signal);
+      // Let spawn_role execute past service.spawn (registers the signal listener).
+      await new Promise((r) => setImmediate(r));
+      ac.abort(); // tool caller cancels
+      await withTimeout(execP, 2000, "spawn_role didn't settle after abort (T1-1 cancel wiring missing)");
+      assert.ok(abortCalls.includes("sig1"), "service.abort(id) called on tool signal (T1-1 cancel wiring)");
+    } finally {
+      DefaultResourceLoader.prototype.reload = origReload;
+    }
   });
 
   it("error run → {status:error, error, agentId}", async () => {
@@ -407,5 +416,28 @@ describe("spawn_role tool", () => {
     const out = await exec(tool, { agentId: "r2" });
     assert.equal(out.details.status, "aborted");
     assert.match(out.details.error, /timeout/);
+  });
+
+  // D-bug (bb93b74 修法未达, 2026-07-01 重验发现): bb93b74 在 service.ts
+  // bindExtensions 后调 setActiveToolsByName(fullSet) 想让 ext 工具进活跃集, 但
+  // setActiveToolsByName 的 `if(tool)` 只保留 _toolRegistry 已注册的工具。真根因
+  // 在更上游: spawn-role-tool.ts 构造 DefaultResourceLoader 后没 reload(), 而
+  // createAgentSession 收到 resourceLoader 不 reload (sdk.ts 只 !resourceLoader 分支
+  // 才 reload)。DefaultResourceLoader 构造时 extensionsResult={extensions:[]}
+  // (loaded=false), 必须 reload 才加载 ext。不 reload → pi-web-access 等 ext 从未
+  // 加载 → web_search 不进 _toolRegistry → setActiveToolsByName 过滤 → role 报
+  // ext 工具 'unknown tool'。修法: spawn-role-tool.ts 构造后 reload()。
+  it("resourceLoader.reload() called so ext tools (web_search/codegraph_*) load for child session", async () => {
+    const origReload = DefaultResourceLoader.prototype.reload;
+    let reloadCalls = 0;
+    DefaultResourceLoader.prototype.reload = async function () { reloadCalls++; } as any;
+    try {
+      const f = fakeService({ id: "r1", status: "completed", result: "ok", turnCount: 1 });
+      const { tool } = deps({ roles: [role("researcher", { tools: ["read", "bash", "web_search"] })], svc: f.svc });
+      await exec(tool, { role: "researcher", task: "x" });
+      assert.ok(reloadCalls > 0, "resourceLoader.reload() called so ext tools load into child registry");
+    } finally {
+      DefaultResourceLoader.prototype.reload = origReload;
+    }
   });
 });
