@@ -187,11 +187,22 @@ describe("reviewPresetContent (compliance whitelist + no-garbage)", () => {
 describe("save_preset tool (write/confirm/source-routing)", () => {
 	// Tool-level tests (PROCESS GAP closure: approver flagged tool write/confirm/
 	// source-routing path was runtime-smoke-verified but unprotected by automated tests).
-	function runTool(userDir: string, params: Record<string, unknown>) {
-		// C1: mock spawnFn 返回 APPROVED(模拟 reviewer 语义审查通过)
-		const mockSpawnFn = (async () => ({ result: "APPROVED. Steps are sound, no duplication, description accurate, no gaps." })) as any;
-		const tool = makeSavePresetTool({ userPresetDir: userDir, spawnFn: mockSpawnFn });
-		// defineTool wraps execute; reach the inner fn via the tool object.
+	// C1 真实 SpawnHandle shape: buildSpawnFn 返回 {agentId, wait()}, 审查结果在 wait()。
+	// 旧 mock {result:"..."} 没建模 .wait(), 掩盖了 save_preset 不调 wait() 的接线 bug
+	// (真 session 暴露: reviewer 跑了但结果没取, JSON.stringify({agentId,wait}) → 永远 REJECT)。
+	// 这组用真实 shape 锁住接线, 防 regression。
+	function realShapeSpawnFn(verdict: string) {
+		return (async () => ({
+			agentId: "sub_test_0",
+			wait: async () => ({
+				status: "completed",
+				result: { findings: [verdict], artifacts: [] },
+				reportPayload: { findings: [verdict], artifacts: [] },
+			}),
+		})) as any;
+	}
+	function runTool(userDir: string, params: Record<string, unknown>, verdict = "APPROVED. Steps are sound, no duplication, description accurate, no gaps.") {
+		const tool = makeSavePresetTool({ userPresetDir: userDir, spawnFn: realShapeSpawnFn(verdict) });
 		const inner = (tool as any).execute ?? (tool as any).handler ?? tool;
 		return inner("id", params, undefined, undefined, {});
 	}
@@ -235,6 +246,54 @@ describe("save_preset tool (write/confirm/source-routing)", () => {
 			assert.equal(r.details.approved, false);
 			assert.ok(!fs.existsSync(path.join(tmp, "BadName.md")), "should NOT write on rejection");
 			assert.ok(/REJECTED/i.test(r.content[0].text));
+		} finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+	});
+
+	// 真 session 暴露的 bug 回归测试: buildSpawnFn 返回 SpawnHandle{agentId,wait()},
+	// 审查结果要 await handle.wait()。旧代码直接当结果用 → 永远 REJECT。这组锁住接线。
+	it("confirm=true saves when reviewer (real SpawnHandle shape) APPROVES", async () => {
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "save-preset-"));
+		try {
+			const r = await runTool(tmp, {
+				name: "goodflow", description: "good flow", task_type: "pm",
+				source: "agent", content: "# steps", confirm: true,
+			});
+			assert.equal(r.details.saved, true, "should save on APPROVED; got: " + r.content[0].text);
+			assert.ok(fs.existsSync(path.join(tmp, "goodflow.md")));
+		} finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+	});
+
+	it("confirm=true rejects when reviewer (real SpawnHandle shape) REJECTS", async () => {
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "save-preset-"));
+		try {
+			const r = await runTool(tmp, {
+				name: "badflow", description: "bad flow", task_type: "pm",
+				source: "agent", content: "# steps", confirm: true,
+			}, "REJECTED. Step 3 is a vague placeholder, not actionable.");
+			assert.equal(r.details.approved, false);
+			assert.ok(!fs.existsSync(path.join(tmp, "badflow.md")), "should NOT write on REJECTED");
+			assert.ok(/REJECTED/i.test(r.content[0].text));
+		} finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+	});
+
+	it("accepts reviewer.md role vocabulary (✅ Ready / ❌ Not ready)", async () => {
+		// reviewer.md verdict 词汇是 ✅ Ready / ❌ Not ready, 与 buildSemanticReviewTask
+		// 要求的 APPROVED/REJECTED 不一致。提取需兼容两种, 否则 reviewer 按角色习语输出会 miss。
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "save-preset-"));
+		try {
+			const rA = await runTool(tmp, {
+				name: "readyflow", description: "x", task_type: "review",
+				source: "agent", content: "# steps", confirm: true,
+			}, "✅ Ready. Preset is sound on all dimensions.");
+			assert.equal(rA.details.saved, true, "✅ Ready should save; got: " + rA.content[0].text);
+			fs.rmSync(path.join(tmp, "readyflow.md"), { force: true });
+
+			const rR = await runTool(tmp, {
+				name: "notreadyflow", description: "x", task_type: "review",
+				source: "agent", content: "# steps", confirm: true,
+			}, "❌ Not ready. Step 2 has a logic gap.");
+			assert.equal(rR.details.approved, false, "❌ Not ready should reject");
+			assert.ok(!fs.existsSync(path.join(tmp, "notreadyflow.md")));
 		} finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 	});
 });

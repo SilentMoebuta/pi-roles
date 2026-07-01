@@ -128,11 +128,32 @@ export function makeSavePresetTool(opts: SavePresetToolOptions = {}) {
 			let semanticApproved = false;
 			let semanticFeedback = "";
 			try {
-				const result = await spawnFn("reviewer", reviewTask);
-				const text = typeof result === "string" ? result
-					: (result as any)?.result ?? (result as any)?.findings?.join("\n") ?? JSON.stringify(result);
-				// reviewer 返回 APPROVED/REJECTED 关键词判断
-				semanticApproved = /\bAPPROVED\b/i.test(text);
+				// buildSpawnFn 返回 SpawnHandle{agentId, wait()} — 审查结果在 wait()。
+				// 旧代码直接当结果用 → JSON.stringify({agentId,wait}) → 永远 REJECT(真 session 暴露)。
+				const handle = await spawnFn("reviewer", reviewTask);
+				const rec = await handle.wait();
+				// reviewer abort/error(历史 liveness 问题)给清晰诊断, 不混同于 REJECT。
+				if (rec.status && rec.status !== "completed") {
+					return {
+						content: [{
+							type: "text" as const,
+							text: `Semantic review did not complete (status: ${rec.status}${rec.error ? ": " + rec.error : ""}). Preset not saved.`,
+						}],
+						details: { stage: "semantic", approved: false, error: rec.error ?? rec.status },
+					};
+				}
+				// rec.reportPayload = reviewer 经 report_role_result 报的 {findings, artifacts}(原样, findings[0]=verdict)。
+				// rec.result = NodePayload 适配版。优先 reportPayload。
+				const payload = (rec as any)?.reportPayload ?? (rec as any)?.result ?? {};
+				const findings = (payload as any).findings;
+				const text = Array.isArray(findings) ? findings.join("\n")
+					: (typeof findings === "string" ? findings : JSON.stringify(rec));
+				// 兼容两种 verdict 词汇: buildSemanticReviewTask 要求 APPROVED/REJECTED,
+				// 但 reviewer.md 角色习语是 ✅ Ready / ❌ Not ready。Reject 信号优先
+				// (防 "Not ready" 含 "Ready" 误判为 approve)。
+				const hasReject = /\bREJECTED\b/i.test(text) || /❌/.test(text) || /\bNot ready\b/i.test(text);
+				const hasApprove = /\bAPPROVED\b/i.test(text) || /✅/.test(text) || /\bReady\b/i.test(text);
+				semanticApproved = hasApprove && !hasReject;
 				semanticFeedback = text;
 			} catch (e) {
 				return {
