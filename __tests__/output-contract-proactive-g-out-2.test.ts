@@ -55,4 +55,39 @@ describe("output-contract-proactive — G-OUT-2 before_provider_request tool_cho
     );
     assert.deepEqual(out.tool_choice, { type: "function", function: { name: "report_role_result" } });
   });
+
+  it("skips tool_choice injection when DeepSeek thinking is ACTIVELY enabled (type:enabled)", () => {
+    // Real DeepSeek payload shape (verified from pi-ai openai-completions.js):
+    // thinkingFormat:"deepseek" sets params.thinking = { type: "enabled" } when
+    // reasoningEffort is set (xhigh/high). This is the case that 400s with tool_choice.
+    const h = makeOutputContractProactiveHandler();
+    const out = h(
+      { type: "before_provider_request", payload: { messages: [], model: "deepseek-v4-pro", thinking: { type: "enabled" }, reasoning_effort: "max" } },
+      { sessionManager: { getHeader: () => ({ parentSession: "p" }) } },
+    );
+    assert.equal(out, undefined, "thinking enabled — must not inject tool_choice");
+  });
+
+  it("still injects tool_choice when DeepSeek thinking is DISABLED (type:disabled)", () => {
+    // DeepSeek ALWAYS sets thinking field (enabled OR disabled — thinkingLevelMap.off
+    // is undefined !== null). A naive `if (p.thinking)` check would wrongly skip
+    // this disabled case, neutering G-OUT-2 entirely for DeepSeek. type must be
+    // checked precisely: only "enabled" conflicts with tool_choice.
+    const h = makeOutputContractProactiveHandler();
+    const out = h(
+      { type: "before_provider_request", payload: { messages: [], model: "deepseek-v4-pro", thinking: { type: "disabled" } } },
+      { sessionManager: { getHeader: () => ({ parentSession: "p" }) } },
+    );
+    assert.equal(out.tool_choice, "required", "thinking disabled — must still inject");
+  });
+
+  it("skips tool_choice injection when OpenRouter reasoning object is present", () => {
+    // OpenRouter thinkingFormat sets payload.reasoning = { effort: ... }.
+    const h = makeOutputContractProactiveHandler();
+    const out = h(
+      { type: "before_provider_request", payload: { messages: [], reasoning: { effort: "high" } } },
+      { sessionManager: { getHeader: () => ({ parentSession: "p" }) } },
+    );
+    assert.equal(out, undefined, "reasoning active — must not inject tool_choice");
+  });
 });

@@ -53,9 +53,26 @@ export function makeOutputContractProactiveHandler(deps: OutputContractProactive
       return undefined; // malformed ctx — no-op (don't risk breaking the request)
     }
     if (!isChild) return undefined;
+    const p = event.payload as any;
+    // Some providers reject tool_choice when thinking mode is ACTIVELY enabled
+    // (DeepSeek: "Thinking mode does not support this tool_choice"). Skip
+    // injection only when thinking is actually on — thinking mode already
+    // biases toward tool calls, and the reactive agent_end enforcer (P0-4) stays
+    // as the safety net.
+    //
+    // Field shapes (verified from pi-ai openai-completions.js):
+    //   DeepSeek/zai:  payload.thinking = { type: "enabled" | "disabled" }
+    //   DeepSeek ALWAYS sets thinking (enabled when reasoningEffort, disabled
+    //   otherwise — thinkingLevelMap.off is undefined !== null). So checking
+    //   `p.thinking` truthiness would skip ALWAYS — must check type==="enabled".
+    //   OpenRouter:   payload.reasoning = { effort: ... } (skip when present).
+    //   Known gap: qwen (enable_thinking) not covered — add if it conflicts.
+    const thinkingEnabled =
+      p?.thinking?.type === "enabled" ||
+      p?.reasoning != null;
+    if (thinkingEnabled) return undefined;
     // Inject tool_choice — forces the model to call a tool this turn. The payload
     // is replaced (extensions.md:627 payload-replace semantics).
-    const p = event.payload as any;
     return { ...p, tool_choice: toolChoice };
   };
 }
