@@ -12,6 +12,7 @@
 import type { WaveResult, NodeResult, DAGResult, DAGSpec } from "./types";
 import { planWaves } from "./planner";
 import { executeDAGCore } from "./executor";
+import { computeSkipReasonsFromResults } from "./route-skip";
 
 /** Serializable checkpoint: the spec + waves completed so far + their results. */
 export interface DAGCheckpoint {
@@ -66,8 +67,14 @@ export async function resumeDAG(
     for (const f of w.failures) initialNodeResults.set(f.nodeId, f);
   }
 
+  // Recompute route skipReasons from the persisted routing-node results so
+  // unselected branches stay skipped after resume (route×checkpoint fix).
+  // result.route survived checkpoint via mergePayloads' Object.assign path.
+  const initialSkipReasons = computeSkipReasonsFromResults(spec, initialNodeResults);
+
   return executeDAGCore(spec, spawnFn, {
     initialNodeResults,
+    initialSkipReasons,
     startWaveIndex: completedWaves.length,
     priorWaveResults: completedWaves,
   });

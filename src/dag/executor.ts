@@ -38,6 +38,8 @@ interface ExecuteOptions {
   startWaveIndex?: number;
   /** Wave results carried over from the checkpoint (prepended to the result). */
   priorWaveResults?: WaveResult[];
+  /** skipReasons 预设（来自 checkpoint 的路由节点结果重算）。resume 时用。 */
+  initialSkipReasons?: Map<string, string>;
   /** Max concurrent spawns per wave (default 5). Caps parallel createAgentSession
    *  calls to prevent resource exhaustion (API rate limits, memory). */
   maxConcurrent?: number;
@@ -86,7 +88,7 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
       signal.addEventListener("abort", onAbort);
     });
 
-  const skipReasons = new Map<string, string>();
+  const skipReasons = new Map<string, string>(opts.initialSkipReasons ?? []);
   const mergePayloads = (payloads: NodePayload[]): NodePayload => {
     const merged: NodePayload = {
       findings: payloads.flatMap((r) => r.findings),

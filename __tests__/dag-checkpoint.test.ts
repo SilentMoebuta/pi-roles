@@ -105,4 +105,46 @@ describe("dag checkpoint (5e) — serialize/deserialize + resume", () => {
     assert.equal(r.finalContext.fanout.findings.length, 3, "3 dynamic results merged");
     assert.deepEqual(r.finalContext.prep, { findings: ["prep-done"], artifacts: [] }, "checkpointed result preserved");
   });
+
+  it("resume does NOT re-spawn unselected route branches (route×checkpoint correctness)", async () => {
+    const spec: DAGSpec = { nodes: {
+      decide: { role: "reviewer", task: "[node:decide] choose", routes: { accept: ["accept"], revise: ["revise"] } },
+      accept: { role: "coder", task: "[node:accept] accept", depends_on: ["decide"] },
+      revise: { role: "coder", task: "[node:revise] revise", depends_on: ["decide"] },
+    }};
+    const wave0: WaveResult = { wave: 0, successes: [{ nodeId: "decide", status: "completed",
+      result: { findings: ["choose accept"], artifacts: [], route: "accept" } }], failures: [], skipped: [] };
+    const spawned: string[] = [];
+    const spawnFn: SpawnFn = async (_role, task) => {
+      const m = task.match(/\[node:([^\]]+)\]/);
+      const nodeId = m![1];
+      spawned.push(nodeId);
+      return { agentId: nodeId, wait: async () => ({ status: "completed", result: { findings: [`${nodeId}-done`], artifacts: [] }, reportPayload: { findings: [`${nodeId}-done`], artifacts: [] } }) };
+    };
+    const r = await resumeDAG(makeCheckpoint(spec, [wave0]), spawnFn);
+    assert.deepEqual(spawned.sort(), ["accept"], "unselected revise NOT re-spawned after resume");
+    assert.equal(r.status, "completed");
+    assert.equal(r.waves[1].skipped?.[0]?.nodeId, "revise");
+    assert.ok(!("revise" in r.finalContext), "skipped branch absent from finalContext");
+  });
+
+  it("resume skips all targets when routing node failed in checkpoint", async () => {
+    const spec: DAGSpec = { nodes: {
+      decide: { role: "reviewer", task: "[node:decide] choose", routes: { accept: ["accept"], revise: ["revise"] } },
+      accept: { role: "coder", task: "[node:accept] accept", depends_on: ["decide"] },
+      revise: { role: "coder", task: "[node:revise] revise", depends_on: ["decide"] },
+    }};
+    const wave0: WaveResult = { wave: 0, successes: [], failures: [{ nodeId: "decide", status: "failed", error: "missing route" }], skipped: [] };
+    const spawned: string[] = [];
+    const spawnFn: SpawnFn = async (_role, task) => {
+      const m = task.match(/\[node:([^\]]+)\]/);
+      const nodeId = m![1];
+      spawned.push(nodeId);
+      return { agentId: nodeId, wait: async () => ({ status: "completed", result: { findings: [], artifacts: [] } }) };
+    };
+    const r = await resumeDAG(makeCheckpoint(spec, [wave0]), spawnFn);
+    assert.deepEqual(spawned, [], "all route targets skipped when router failed");
+    assert.equal(r.waves[1].skipped?.length, 2);
+    assert.equal(r.status, "partial");
+  });
 });
