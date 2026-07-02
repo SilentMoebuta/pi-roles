@@ -12,6 +12,7 @@ export interface DagProgressView {
     status: NodeStatus;
     wave: number;
     error?: string;
+    route?: string;
   }>;
 }
 
@@ -42,7 +43,7 @@ function computeWaves(spec: DAGSpec): Record<string, number> {
 
 export function toDagProgress(
   spec: DAGSpec,
-  raw: { currentWave: number; totalWaves: number; nodes?: Record<string, { status: string; error?: string }> },
+  raw: { currentWave: number; totalWaves: number; nodes?: Record<string, { status: string; error?: string; route?: string }> },
   dagId = "",
 ): DagProgressView {
   const waves = computeWaves(spec);
@@ -69,6 +70,7 @@ export function toDagProgress(
       status,
       wave: waves[id],
       error: r?.error,
+      route: r?.route,
     };
   }
   return { dagId, currentWave: raw.currentWave, totalWaves: raw.totalWaves, nodes };
@@ -82,7 +84,7 @@ export function makeOnProgress(
   onUpdate: (r: { content: any[]; details: any }) => void,
   dagId = "",
 ) {
-  return (p: { currentWave: number; totalWaves: number; nodes?: Record<string, { status: string; error?: string }> }) => {
+  return (p: { currentWave: number; totalWaves: number; nodes?: Record<string, { status: string; error?: string; route?: string }> }) => {
     const view = toDagProgress(spec, p, dagId);
     onUpdate({
       content: [{ type: "text" as const, text: `DAG wave ${p.currentWave + 1}/${p.totalWaves} running…` }],

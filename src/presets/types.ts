@@ -1,6 +1,7 @@
 export type PresetSourceType = "builtin" | "user" | "agent";
 
 export type PresetTaskType = "coding" | "research" | "pm" | "review" | "debug";
+export type PresetLifecycle = "stable" | "provisional";
 
 export interface PresetFrontmatter {
 	name?: string;
@@ -11,6 +12,8 @@ export interface PresetFrontmatter {
 	source?: string;
 	version?: string;
 	author?: string;
+	lifecycle?: string;
+	validation?: string;
 	[key: string]: unknown;
 }
 
@@ -24,6 +27,8 @@ export interface Preset {
 	version: string;
 	author: string;
 	filePath: string;
+	lifecycle: PresetLifecycle;
+	validation: string;
 }
 
 export interface ReviewInput {

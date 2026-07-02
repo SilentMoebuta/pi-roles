@@ -12,7 +12,8 @@ export interface InjectionOptions {
 }
 
 function fullRow(p: Preset): string {
-	return `| ${p.name} | ${p.taskType} | ${p.description.replace(/\|/g, "\\|")} | ${p.filePath} |`;
+	const description = `${p.lifecycle === "provisional" ? "[provisional] " : ""}${p.description}`;
+	return `| ${p.name} | ${p.taskType} | ${description.replace(/\|/g, "\\|")} | ${p.filePath} |`;
 }
 
 /**

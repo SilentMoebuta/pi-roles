@@ -23,6 +23,8 @@ import type { SpawnFn } from "../dag/executor";
 // 工具内 spawn 用 buildSpawnFn(对齐 dag_execute 先例)。每次 confirm=true 都 spawn
 // 一个 LLM session 审查(贵但防沉淀彻底, 用户选方案 A)。
 
+const PROVISIONAL_VALIDATION = "mechanical+semantic review; promote after repeated successful reuse";
+
 const Params = Type.Object({
 	name: Type.String({ description: "Preset name (lowercase, hyphens only, not at start/end)" }),
 	description: Type.String({ description: "Preset description (what it does, when to trigger)" }),
@@ -81,6 +83,8 @@ export function makeSavePresetTool(opts: SavePresetToolOptions = {}) {
 			const content = String(params.content ?? "");
 			const source = String(params.source ?? "agent");
 			const confirm = params.confirm === true;
+			const lifecycle = source === "agent" ? "provisional" : "stable";
+			const validation = source === "agent" ? PROVISIONAL_VALIDATION : "tool write";
 
 			// 2a. 纯函数预筛(机械合规)
 			const mechanical = reviewPresetContent({ name, description, taskType, source, content });
@@ -187,6 +191,8 @@ export function makeSavePresetTool(opts: SavePresetToolOptions = {}) {
 					`source: ${source}`,
 					`version: "1.0"`,
 					`author: agent`,
+					`lifecycle: ${lifecycle}`,
+					`validation: "${validation}"`,
 					"---",
 					"",
 					content,
@@ -197,9 +203,9 @@ export function makeSavePresetTool(opts: SavePresetToolOptions = {}) {
 				return {
 					content: [{
 						type: "text" as const,
-						text: `Preset saved to ${filePath} (passed mechanical + semantic review).\nNote: loaded on NEXT session start (loadPresets scans at session init, not real-time). Read file directly or restart to use this session.`,
+						text: `Preset saved to ${filePath} (lifecycle: ${lifecycle}; passed mechanical + semantic review).\nNote: loaded on NEXT session start (loadPresets scans at session init, not real-time). Read file directly or restart to use this session.`,
 					}],
-					details: { stage: "saved", approved: true, saved: true, filePath },
+					details: { stage: "saved", approved: true, saved: true, filePath, lifecycle, validation },
 				};
 			} catch (e) {
 				return {

@@ -85,7 +85,7 @@ export function buildSemanticReviewTask(input: {
 		"2. DUPLICATION: Does this preset duplicate an existing preset's purpose? (Check against the existing list above.)\n" +
 		"3. DESCRIPTION ACCURACY: Does the description accurately describe what the preset does? Not misleading or empty?\n" +
 		"4. MISSING/LOGIC GAPS: Are there missing steps or logic holes that would make the workflow fail or confuse?\n\n" +
-		"Return APPROVED if the preset is semantically sound on all 4 dimensions. " +
+		"Return APPROVED only if the preset is safe to save as PROVISIONAL after this review; approval is not long-term best-practice promotion. " +
 		"Return REJECTED with specific, actionable feedback if any dimension fails. " +
 		"Be honest — this prevents low-quality presets from accumulating in the library."
 	);

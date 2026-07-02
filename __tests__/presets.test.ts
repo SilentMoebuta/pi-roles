@@ -54,6 +54,17 @@ describe("loadPresets", () => {
 		}
 	});
 
+	it("loads old presets without lifecycle as stable", () => {
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "presets-"));
+		try {
+			mkPreset(tmp, "research", VALID_PRESET);
+			const { presets } = loadPresets(tmp, "", "");
+			assert.equal(presets[0].lifecycle, "stable");
+		} finally {
+			fs.rmSync(tmp, { recursive: true, force: true });
+		}
+	});
+
 	it("priority: project > user > builtin on name collision", () => {
 		const builtinDir = fs.mkdtempSync(path.join(os.tmpdir(), "presets-builtin-"));
 		const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "presets-user-"));
@@ -166,9 +177,9 @@ describe("reviewPresetContent (compliance whitelist + no-garbage)", () => {
 	it("returns injection text with preset summary table (A2 decoupled: no routing hint)", () => {
 		const presets: Preset[] = [
 			{ name: "research", description: "Research workflow", taskType: "research", source: "builtin",
-				allowedRoles: ["researcher"], allowedTools: [], version: "1.0", author: "pi", filePath: "/x" },
+				allowedRoles: ["researcher"], allowedTools: [], version: "1.0", author: "pi", filePath: "/x", lifecycle: "stable", validation: "" },
 			{ name: "pm-discovery", description: "PM SOP", taskType: "pm", source: "builtin",
-				allowedRoles: ["pm"], allowedTools: [], version: "1.0", author: "pi", filePath: "/y" },
+				allowedRoles: ["pm"], allowedTools: [], version: "1.0", author: "pi", filePath: "/y", lifecycle: "stable", validation: "" },
 		];
 		const inj = buildPresetInjection(presets);
 		assert.ok(inj.includes("research"), "missing research preset");
@@ -177,6 +188,15 @@ describe("reviewPresetContent (compliance whitelist + no-garbage)", () => {
 		// A2 解耦: preset 注入不再含路由提示(路由归 taskRoutingBlock 一处讲)
 		assert.ok(!/Routing priority/i.test(inj), "should NOT contain routing priority (decoupled)");
 		assert.ok(!/prioritize preset/i.test(inj), "should NOT contain prioritize-preset (decoupled)");
+	});
+
+	it("marks provisional presets in descriptions", () => {
+		const presets: Preset[] = [
+			{ name: "draft", description: "Draft flow", taskType: "pm", source: "agent",
+				allowedRoles: [], allowedTools: [], version: "1.0", author: "agent", filePath: "/draft", lifecycle: "provisional", validation: "mechanical+semantic review" },
+		];
+		const inj = buildPresetInjection(presets);
+		assert.match(inj, /\[provisional\] Draft flow/);
 	});
 
 	it("returns empty string when no presets (no injection)", () => {
@@ -231,8 +251,12 @@ describe("save_preset tool (write/confirm/source-routing)", () => {
 			assert.ok(fs.existsSync(filePath), "should write on confirm=true");
 			// hot-reload: loadPresets picks up the written file
 			const { presets } = loadPresets("", tmp, "");
-			assert.ok(presets.some((p) => p.name === "myflow"), "written preset should be loadable");
+			const saved = presets.find((p) => p.name === "myflow");
+			assert.ok(saved, "written preset should be loadable");
+			assert.equal(saved.lifecycle, "provisional");
+			assert.equal(saved.validation, "mechanical+semantic review; promote after repeated successful reuse");
 			assert.equal(r.details.saved, true);
+			assert.equal(r.details.lifecycle, "provisional");
 		} finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 	});
 
