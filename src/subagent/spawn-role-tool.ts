@@ -31,6 +31,26 @@ import { discoverRoleSkillDirs } from "./role-skills-discovery";
 // modelRegistry (ExtensionContext.modelRegistry — the main session's registry,
 // with in-memory credentials, so children reuse auth, not re-read disk).
 // findExactModelReferenceMatch is not a public pi export, so we scan getAll().
+/** G1 (CLM 二次 live 测试复盘): format an aborted spawn reason into an actionable
+ *  error string. Root cause of the CLM blind-retry loop: the abort error was bare
+ *  "step-limit", so the main agent could not tell the fix was "raise maxTurns".
+ *  The step-limit logic itself is correct (confirmed: a 2-tool task at maxTurns=5
+ *  completes; CLM aborts were under-provisioning maxTurns=3-8 for a 492-line review).
+ *  This surfaces turnCount + a remedy hint so the caller self-diagnoses instead of
+ *  blind-retrying. Pure fn — unit-testable directly, no pi-runtime types. */
+export function formatSpawnError(reason: string | undefined, turnCount: number | undefined): string {
+	if (reason === "step-limit") {
+		return "step-limit (reached maxTurns=" + (turnCount ?? "?") + "; the task likely needs more turns — raise maxTurns or simplify the role task)";
+	}
+	if (reason === "doom-loop") {
+		return "doom-loop (role repeated the same tool call 3×; the role task likely calls a failing tool or misses a dependency — fix the task or the tool)";
+	}
+	if (reason === "liveness") {
+		return "liveness (no activity within the liveness window; the provider may be hung or the task too large — try a smaller task or check provider health)";
+	}
+	return reason ?? "aborted";
+}
+
 export function resolveModelRef(modelRef: string, registry: { getAll(): any[]; find(provider: string, id: string): any | undefined }): any | undefined {
   const slash = modelRef.indexOf("/");
   if (slash > 0) {
@@ -182,7 +202,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         const rec = await deps.service.waitForResult(params.agentId);
         const payload = rec.reportPayload ?? (rec.result ? { findings: [rec.result], artifacts: [] } : { findings: [], artifacts: [] });
         if (rec.status === "completed") return okResult({ status: "completed", result: payload, agentId: params.agentId });
-        if (rec.status === "aborted") return okResult({ status: "aborted", error: rec.reason ?? "aborted", agentId: params.agentId });
+        if (rec.status === "aborted") return okResult({ status: "aborted", error: formatSpawnError(rec.reason, rec.turnCount), agentId: params.agentId });
         return okResult({ status: "error", error: rec.error ?? rec.reason ?? "unknown error", agentId: params.agentId });
       }
 
@@ -399,7 +419,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       const result = payload ?? (rec.result ? { findings: [rec.result], artifacts: [] } : { findings: [], artifacts: [] });
 
       if (rec.status === "completed") return okResult({ status: "completed", result, agentId: rec.id ?? id, sessionFile: rec.sessionFile });
-      if (rec.status === "aborted") return okResult({ status: "aborted", error: rec.reason ?? "aborted", agentId: rec.id ?? id, sessionFile: rec.sessionFile });
+      if (rec.status === "aborted") return okResult({ status: "aborted", error: formatSpawnError(rec.reason, rec.turnCount), agentId: rec.id ?? id, sessionFile: rec.sessionFile });
       return okResult({ status: "error", error: rec.error ?? rec.reason ?? "unknown error", agentId: rec.id ?? id, sessionFile: rec.sessionFile });
     },
   });

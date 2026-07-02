@@ -104,6 +104,11 @@ describe("spawn_role tool", () => {
     const out = await exec(tool, { role: "reviewer", task: "x" });
     assert.equal(out.details.status, "aborted");
     assert.match(out.details.error, /step-limit/);
+    // G1: abort error must be actionable — name maxTurns + the turn count reached + a
+    // remedy hint, so the caller raises maxTurns instead of blind-retrying.
+    assert.match(out.details.error, /maxTurns/i, `should be actionable, got: ${out.details.error}`);
+    assert.match(out.details.error, /2/);
+    assert.match(out.details.error, /raise|more turns|simplif/i);
     assert.equal(out.details.agentId, "a1");
   });
 
