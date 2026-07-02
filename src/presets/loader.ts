@@ -2,10 +2,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import ignore from "ignore";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import type { Preset, PresetFrontmatter, PresetSourceType, PresetTaskType } from "./types";
+import type { Preset, PresetFrontmatter, PresetSourceType, PresetTaskType, PresetLifecycle } from "./types";
 
 const LEGAL_TASK_TYPES: PresetTaskType[] = ["coding", "research", "pm", "review", "debug"];
 const LEGAL_SOURCES: PresetSourceType[] = ["builtin", "user", "agent"];
+const LEGAL_LIFECYCLES: PresetLifecycle[] = ["stable", "provisional"];
 const IGNORE_FILE_NAMES = [".gitignore", ".ignore", ".fdignore"]; // B1: 对齐 pi-core loadSkillsFromDir
 
 function isLegalTaskType(s: string): s is PresetTaskType {
@@ -13,6 +14,9 @@ function isLegalTaskType(s: string): s is PresetTaskType {
 }
 function isLegalSource(s: string): s is PresetSourceType {
 	return (LEGAL_SOURCES as string[]).includes(s);
+}
+function isLegalLifecycle(s: string): s is PresetLifecycle {
+	return (LEGAL_LIFECYCLES as string[]).includes(s);
 }
 
 function loadPresetFile(filePath: string): Preset | null {
@@ -25,6 +29,7 @@ function loadPresetFile(filePath: string): Preset | null {
 		const taskTypeRaw = frontmatter.task_type ?? "";
 		if (!isLegalTaskType(taskTypeRaw)) return null; // skip malformed
 		const sourceRaw = frontmatter.source ?? "user";
+		const lifecycleRaw = frontmatter.lifecycle ?? "stable";
 		return {
 			name,
 			description,
@@ -39,6 +44,8 @@ function loadPresetFile(filePath: string): Preset | null {
 			version: frontmatter.version ?? "1.0",
 			author: frontmatter.author ?? "",
 			filePath,
+			lifecycle: isLegalLifecycle(lifecycleRaw) ? lifecycleRaw : "stable",
+			validation: typeof frontmatter.validation === "string" ? frontmatter.validation : "",
 		};
 	} catch {
 		return null; // graceful skip on parse error

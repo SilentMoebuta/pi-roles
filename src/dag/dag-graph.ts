@@ -85,7 +85,7 @@ function collapseWaveLine(wave: number, ids: string[], view: DagProgressView, wi
   let sym = "○";
   for (const id of ids) {
     const st = view.nodes[id]?.status;
-    if (st === "completed") done++;
+    if (st === "completed" || st === "skipped") done++;
   }
   if (done === total) sym = "✓";
   else if (done > 0) sym = "◐";
@@ -121,6 +121,7 @@ export function renderDagGraph(view: DagProgressView, width: number): string[] {
       const node = view.nodes[id];
       const sym = STATUS_SYMBOL[node.status];
       let line = `  ${sym} ${id}: ${shortLabel(node.task)}`;
+      if (node.route) line += `  route=${node.route}`;
       if (node.error) line += `  [${truncate(node.error, 20)}]`;
       lines.push(truncate(line, width));
       // Dependency edges: render each dep as a box-line connector (tree-style),

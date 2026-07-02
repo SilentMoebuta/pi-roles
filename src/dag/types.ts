@@ -85,5 +85,5 @@ export interface DAGProgress {
   dagId: string;
   currentWave: number;
   totalWaves: number;
-  nodes: Record<string, { status: "queued" | "running" | "completed" | "failed" | "skipped"; error?: string }>;
+  nodes: Record<string, { status: "queued" | "running" | "completed" | "failed" | "skipped"; error?: string; route?: string }>;
 }

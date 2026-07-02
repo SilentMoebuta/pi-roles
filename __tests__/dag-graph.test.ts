@@ -48,6 +48,24 @@ describe("renderDagGraph", () => {
     const joined = renderDagGraph(v, 80).join("\n");
     assert.match(joined, /boom/);
   });
+
+  it("shows route metadata on expanded node lines", () => {
+    const v = view({ nodes: {
+      "task-1": { task: "choose", deps: [], status: "completed", wave: 0, route: "accept" },
+    }});
+    const joined = renderDagGraph(v, 80).join("\n");
+    assert.match(joined, /route=accept/);
+  });
+
+  it("counts skipped as settled in collapsed wave summaries", () => {
+    const v = view({ currentWave: 1, totalWaves: 2, nodes: {
+      "accept": { task: "accept", deps: [], status: "completed", wave: 0 },
+      "revise": { task: "revise", deps: [], status: "skipped", wave: 0, error: "not selected" },
+      "next": { task: "next", deps: ["accept"], status: "running", wave: 1 },
+    }});
+    const line = renderDagGraph(v, 80).find((l) => /Wave 0/.test(l));
+    assert.match(line ?? "", /2\/2/);
+  });
   it("respects width — truncates long node lists rather than overflowing", () => {
     const v = view({ nodes: Object.fromEntries(
       Array.from({length: 10}, (_, i) => [`task-${i}`, { task: `task ${i}`.repeat(5), deps: [], status: "queued", wave: 0 }])

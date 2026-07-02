@@ -13,7 +13,7 @@ import {
 function mk(name: string, desc: string, filePath = "/x"): Preset {
 	return {
 		name, description: desc, taskType: "research", source: "builtin",
-		allowedRoles: ["researcher"], allowedTools: [], version: "1.0", author: "pi", filePath,
+		allowedRoles: ["researcher"], allowedTools: [], version: "1.0", author: "pi", filePath, lifecycle: "stable", validation: "",
 	};
 }
 

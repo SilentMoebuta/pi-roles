@@ -7,6 +7,7 @@ export type {
 	PresetFrontmatter,
 	PresetSourceType,
 	PresetTaskType,
+	PresetLifecycle,
 	ReviewInput,
 	ReviewResult,
 } from "./types";

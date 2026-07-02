@@ -275,8 +275,11 @@ export async function executeDAGCore(spec: DAGSpec, spawnFn: SpawnFn, opts: Exec
 
     waveResults.push({ wave: wave.index, successes, failures, skipped });
     // Emit progress: wave settled — per-node final status.
-    const settledStatus: Record<string, { status: "completed" | "failed" | "skipped"; error?: string }> = {};
-    for (const s of successes) settledStatus[s.nodeId] = { status: "completed" };
+    const settledStatus: Record<string, { status: "completed" | "failed" | "skipped"; error?: string; route?: string }> = {};
+    for (const s of successes) {
+      const route = spec.nodes[s.nodeId]?.routes && typeof s.result?.route === "string" ? s.result.route : undefined;
+      settledStatus[s.nodeId] = route ? { status: "completed", route } : { status: "completed" };
+    }
     for (const f of failures) settledStatus[f.nodeId] = { status: "failed", error: f.error };
     for (const s of skipped) settledStatus[s.nodeId] = { status: "skipped", error: s.error };
     opts.onProgress?.({ dagId: "", currentWave: wi, totalWaves: waves.length, nodes: settledStatus });

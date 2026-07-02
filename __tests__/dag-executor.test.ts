@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { executeDAG, type SpawnFn } from "../src/dag/executor";
+import { executeDAG, executeDAGCore, type SpawnFn } from "../src/dag/executor";
 import type { DAGSpec } from "../src/dag/types";
 
 // Fake spawnFn: completes after a tick. Configurable per-node outcome.
@@ -100,6 +100,25 @@ describe("dag executor (waves + barrier + partial failure)", () => {
     assert.match(r.waves[0].failures[0].error ?? "", /spawn rejected/);
     assert.equal(r.waves[0].successes.length, 1, "sibling b still spawned + completed (spawn-phase isolation)");
   });
+  it("emits selected route metadata in settled progress", async () => {
+    const spec: DAGSpec = { nodes: {
+      decide: { role: "reviewer", task: "[node:decide] choose", routes: { accept: ["accept"], revise: ["revise"] } },
+      accept: { role: "coder", task: "[node:accept] accept", depends_on: ["decide"] },
+      revise: { role: "coder", task: "[node:revise] revise", depends_on: ["decide"] },
+    }};
+    const progress: any[] = [];
+    await executeDAGCore(spec, async (_role, task) => {
+      const nodeId = task.match(/\[node:([^\]]+)\]/)![1];
+      const result = nodeId === "decide"
+        ? { findings: ["choose accept"], artifacts: [], route: "accept" }
+        : { findings: [`${nodeId} ran`], artifacts: [] };
+      return { agentId: nodeId, wait: async () => ({ status: "completed" as const, result, reportPayload: result }) };
+    }, { onProgress: (p) => progress.push(p) });
+
+    const settled = progress.find((p) => p.nodes.decide?.route === "accept");
+    assert.equal(settled?.nodes.decide.route, "accept");
+  });
+
   it("routes to the selected branch and skips unselected branch nodes", async () => {
     const spec: DAGSpec = { nodes: {
       decide: { role: "reviewer", task: "[node:decide] choose", routes: { accept: ["accept"], revise: ["revise"] } },

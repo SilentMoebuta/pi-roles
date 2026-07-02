@@ -52,6 +52,14 @@ describe("toDagProgress", () => {
     assert.equal(view.nodes["task-2"].wave, 0);
     assert.equal(view.nodes["task-3"].wave, 1);
   });
+
+  it("preserves route metadata from raw progress", () => {
+    const raw = { currentWave: 0, totalWaves: 2, nodes: {
+      "task-1": { status: "completed", route: "accept" },
+    } };
+    const view = toDagProgress(spec, raw);
+    assert.equal(view.nodes["task-1"].route, "accept");
+  });
 });
 
 describe("makeOnProgress", () => {
