@@ -43,7 +43,7 @@ describe("B-cleanup: child session archived after run", () => {
     const archived: string[] = [];
     const svc = new SubagentsService(makeDeps(fake.session, "/tmp/child.jsonl"), {
       cwd: "/p", agentDir: "/.pi",
-      archiveSession: (file) => archived.push(file),
+      archiveSession: (file) => { archived.push(file); return file; },
     });
     const id = svc.spawn({ role: "reviewer", task: "x", maxTurns: 10 } as SubagentServiceParams);
     await svc.waitForResult(id);
@@ -55,7 +55,7 @@ describe("B-cleanup: child session archived after run", () => {
     const fake = makeFakeSession(50, "working");
     const archived: string[] = [];
     const svc = new SubagentsService(makeDeps(fake.session, "/tmp/c.jsonl"), {
-      cwd: "/p", agentDir: "/.pi", archiveSession: (file) => archived.push(file),
+      cwd: "/p", agentDir: "/.pi", archiveSession: (file) => { archived.push(file); return file; },
     });
     const id = svc.spawn({ role: "reviewer", task: "x", maxTurns: 2 } as SubagentServiceParams);
     await svc.waitForResult(id);
@@ -71,7 +71,7 @@ describe("B-cleanup: child session archived after run", () => {
       createSession: async () => ({ session: fake.session }),
     };
     const svc = new SubagentsService(deps, {
-      cwd: "/p", agentDir: "/.pi", archiveSession: (file) => archived.push(file),
+      cwd: "/p", agentDir: "/.pi", archiveSession: (file) => { archived.push(file); return file; },
     });
     const id = svc.spawn({ role: "reviewer", task: "x", maxTurns: 10 } as SubagentServiceParams);
     await svc.waitForResult(id);

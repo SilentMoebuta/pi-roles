@@ -80,9 +80,9 @@ export class SubagentsService {
   private spawnQueue: Array<() => void> = [];
   /** P2-5: archived session files → timestamp (ms). */
   private archivedSessions = new Map<string, number>();
-  private archiveSession: (sessionFile: string) => void;
+  private archiveSession: (sessionFile: string) => string | undefined;
 
-  constructor(deps: SpawnDeps, env: { cwd: string; agentDir: string; archiveSession?: (sessionFile: string) => void; maxConcurrentSpawns?: number; maxTerminalRecords?: number }) {
+  constructor(deps: SpawnDeps, env: { cwd: string; agentDir: string; archiveSession?: (sessionFile: string) => string | undefined; maxConcurrentSpawns?: number; maxTerminalRecords?: number }) {
     this.deps = deps;
     this.cwd = env.cwd;
     this.agentDir = env.agentDir;
@@ -103,11 +103,15 @@ export class SubagentsService {
       }
     };
     const rawArchive = env.archiveSession ?? defaultArchiveSession;
-    this.archiveSession = (path: string) => {
+    this.archiveSession = (path: string): string | undefined => {
       const ts = Date.now();
-      const archived = `${path}.archived.${ts}`;
-      this.archivedSessions.set(archived, ts);
-      rawArchive(path);
+      const dest = rawArchive(path);
+      // P2-5: track the ACTUAL archived path. Was `${path}.archived.${ts}` which
+      // never matched defaultArchiveSession's sessions-archive/ dest, so P2-5
+      // cleanup was a no-op. Track dest when archive returns it (defaultArchiveSession
+      // now returns its dest; injected archives returning void skip tracking).
+      if (dest) this.archivedSessions.set(dest, ts);
+      return dest;
     };
     // Default: rename child .jsonl to .archived.<ts> so it leaves pi's dir scan
     // P2-5: archiveSession wrapper handles tracking.
@@ -305,10 +309,16 @@ export class SubagentsService {
     // so callers awaiting waitForResult see an already-archived session (no race
     // where the child .jsonl lingers in pi's session-tree scan after the result is
     // handed back). Best-effort: errors swallowed.
+    // G3-live-fix (2026-07-03): capture the archived path. defaultArchiveSession
+    // MOVES the file to sessions-archive/, so the pre-archive spawnResult.sessionFile
+    // is stale (ENOENT) by the time callers — e.g. the G3 reviewer-source handler —
+    // read it. Propagate the readable archived path to record/onComplete/hook.
+    let archivedSessionFile: string | undefined;
     if (spawnResult.sessionFile) {
-      try { this.archiveSession(spawnResult.sessionFile); }
+      try { archivedSessionFile = this.archiveSession(spawnResult.sessionFile); }
       catch { /* best-effort: cleanup failure does not affect the resolved run */ }
     }
+    const sessionFileForRecord = archivedSessionFile ?? spawnResult.sessionFile;
 
     this.registry.resolve(id, (s) => {
       if (outcome!.status === "completed") {
@@ -318,7 +328,7 @@ export class SubagentsService {
       } else {
         s.markError(outcome!.reason ?? "unknown error", Date.now());
       }
-    }, outcome!.reason, outcome!.turnCount, spawnResult.sessionFile, reportPayload);
+    }, outcome!.reason, outcome!.turnCount, sessionFileForRecord, reportPayload);
 
     // P0-1: notify caller when a background subagent completes.
     try { params.onComplete?.({
@@ -328,7 +338,7 @@ export class SubagentsService {
       error: outcome!.reason,
       reportPayload: reportPayload ?? (outcome!.finalText ? { findings: [outcome!.finalText], artifacts: [] } : undefined),
       turnCount: outcome!.turnCount,
-      sessionFile: spawnResult.sessionFile,
+      sessionFile: sessionFileForRecord,
     }); } catch { /* best-effort */ }
 
     // P0-3: lifecycle hook — complete / stop / error.
@@ -337,7 +347,7 @@ export class SubagentsService {
         : outcome!.status === "aborted" ? "subagent_stop" : "subagent_error";
       await hooks.emit(hookEvent, {
         id, role: params.role, task: params.task, parentSessionId: params.parentSessionId,
-        status: outcome!.status, error: outcome!.reason, sessionFile: spawnResult.sessionFile, turnCount: outcome!.turnCount,
+        status: outcome!.status, error: outcome!.reason, sessionFile: sessionFileForRecord, turnCount: outcome!.turnCount,
       });
     } catch { /* best-effort */ }
 
@@ -359,18 +369,23 @@ export class SubagentsService {
 // child-role traces — no more hunting for `.archived.*` siblings.
 // ponytail: rename not unlink — keeps the transcript for debugging.
 const ARCHIVE_BASENAME = "sessions-archive";
-export function defaultArchiveSession(sessionFile: string): void {
+export function defaultArchiveSession(sessionFile: string): string | undefined {
   const parentDir = path.dirname(sessionFile);
   const archiveDir = path.join(path.dirname(parentDir), ARCHIVE_BASENAME, path.basename(parentDir));
   try { fs.mkdirSync(archiveDir, { recursive: true }); } catch { /* may exist */ }
   const dest = path.join(archiveDir, path.basename(sessionFile));
   try {
     fs.renameSync(sessionFile, dest);
+    return dest;
   } catch {
     // If rename fails (e.g. cross-device), fall back to copy+unlink so the live
     // dir still gets cleaned. Best-effort — archive failure must not break the run.
-    try { fs.copyFileSync(sessionFile, dest); fs.unlinkSync(sessionFile); }
-    catch { /* give up; original remains in live dir */ }
+    try { fs.copyFileSync(sessionFile, dest); fs.unlinkSync(sessionFile); return dest; }
+    catch {
+      // give up; original may still remain in live dir — return whichever path is
+      // readable so callers (G3 reviewer-source handler) get a path that exists.
+      return fs.existsSync(sessionFile) ? sessionFile : undefined;
+    }
   }
 }
 
