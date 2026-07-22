@@ -34,7 +34,7 @@ export interface SubagentSession {
 }
 
 export type SubagentEvent =
-  | { type: "message_end"; message: { role: string; content: Array<{ type: string; text?: string; name?: string; arguments?: unknown }> } }
+  | { type: "message_end"; message: { role: string; stopReason?: string; content: Array<{ type: string; text?: string; name?: string; arguments?: unknown }> } }
   // G-LIV-1: pi's session.subscribe DOES emit tool_execution_* to subscribers
   // (agent-session.js _handleAgentEvent emits the raw event for all types), so
   // handling them here is sound in prod (confirmed by probe-g-liv-1-liveness-live).
@@ -62,7 +62,7 @@ export type RunStatus = "completed" | "aborted" | "error";
 
 export interface RunOutcome {
   status: RunStatus;
-  reason?: string;   // "step-limit" | "liveness" | "caller-abort" | error message
+  reason?: string;   // "step-limit" | "liveness" | "caller-abort" | "doom-loop" | "provider-abort" | error message
   finalText?: string; // last assistant text (fallback result)
   turnCount: number;
 }
@@ -82,6 +82,15 @@ export async function runSubagent(
 
   let turnCount = 0;
   let lastAssistantText: string | undefined;
+  // Provider-abort detection: track the last assistant message's stopReason.
+  // When the upstream provider aborts mid-generation (connection reset, server
+  // timeout), the assistant message arrives with stopReason "aborted" or "error"
+  // but the runner's own abortReason stays null (it wasn't liveness/step-limit/
+  // doom-loop/caller). Without this, outcome.status = "completed" even though
+  // the child never called report_role_result, so spawn_role returns an empty
+  // result and the parent hangs. Detected post-prompt; runner-level abortReason
+  // (step-limit etc.) always takes precedence.
+  let lastAssistantStopReason: string | undefined;
   // P1-4 doom-loop: track last 3 tool-name+input-hash signatures (SOTA: OpenCode
   // tracks tool+input, not assistant text — a role stuck calling the same
   // failing tool with varied/no text is NOT caught by a text signal). Also keep
@@ -115,6 +124,10 @@ export async function runSubagent(
         .map((c) => (c as any).text as string)
         .join("");
       if (text.length > 0) lastAssistantText = text;
+      // Provider-abort detection: capture stopReason for post-prompt outcome check.
+      if (typeof (e as any).message.stopReason === "string") {
+        lastAssistantStopReason = (e as any).message.stopReason;
+      }
       // T1-2: doom-loop on tool-name+input-hash (primary SOTA signal).
       if (doomLoop) {
         const toolCalls = e.message.content.filter((c) => c.type === "toolCall");
@@ -184,7 +197,16 @@ export async function runSubagent(
     }
     await session.prompt(task);
     if (abortReason === null) {
-      outcome = { status: "completed", finalText: lastAssistantText, turnCount };
+      // Provider-abort detection: if the runner didn't abort (abortReason null)
+      // but the last assistant message had stopReason "aborted" or "error",
+      // the upstream provider dropped mid-generation. Mark as aborted so P2-4
+      // retry in spawn-role-tool can fire (retryCount > 0) and the parent gets
+      // an actionable error instead of an empty "completed" result.
+      if (lastAssistantStopReason === "aborted" || lastAssistantStopReason === "error") {
+        outcome = { status: "aborted", reason: "provider-abort", finalText: lastAssistantText, turnCount };
+      } else {
+        outcome = { status: "completed", finalText: lastAssistantText, turnCount };
+      }
     } else {
       outcome = { status: "aborted", reason: abortReason, finalText: lastAssistantText, turnCount };
     }

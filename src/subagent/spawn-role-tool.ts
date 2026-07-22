@@ -46,7 +46,10 @@ export function formatSpawnError(reason: string | undefined, turnCount: number |
 		return "doom-loop (role repeated the same tool call 3×; the role task likely calls a failing tool or misses a dependency — fix the task or the tool)";
 	}
 	if (reason === "liveness") {
-		return "liveness (no activity within the liveness window; the provider may be hung or the task too large — try a smaller task or check provider health)";
+		return "liveness (no activity within the liveness window; the provider may be hung or the task too large - try a smaller task or check provider health)";
+	}
+	if (reason === "provider-abort") {
+		return "provider-abort (upstream provider dropped the connection mid-generation; auto-retried if retryCount > 0 - if persistent, try a different model or shorter task)";
 	}
 	return reason ?? "aborted";
 }
@@ -384,7 +387,10 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       // (abort guards on already-aborted). {once:true} → no leak.
       if (signal) signal.addEventListener("abort", () => deps.service.abort(id), { once: true });
 
-      let retries = Math.min(params.retryCount ?? 0, 3);
+      // P2-4 + provider-abort: default retryCount=1 so a transient provider abort
+      // (upstream connection reset on long responses) auto-retries once instead of
+      // returning an empty result that hangs the parent. Callers can override (0-3).
+      let retries = Math.min(params.retryCount ?? 1, 3);
       let rec = await deps.service.waitForResult(id);
       // P2-4: retry on abort/error with exponential backoff.
       while (retries > 0 && (rec.status === "aborted" || rec.status === "error")) {
