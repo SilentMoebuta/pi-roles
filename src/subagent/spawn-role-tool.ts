@@ -403,9 +403,19 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         // (reconstructing re-reads 5 skills dirs = pessimization), so it's reused.
         const retryReportState: ReportState = { reported: new Set(), activeRole: new Map(), payloads: new Map() };
         const retryReportTool = makeReportTool({ state: retryReportState, schema: role.outputSchema ?? DEFAULT_REPORT_SCHEMA, failedStep: role.name });
+        // provider-abort workaround: agent-loop.js returns early on stopReason='aborted'
+        // without draining the steering queue, so the output-contract enforcer's
+        // agent_end reminder (queued via sendUserMessage->steer) never runs. Inject the
+        // reminder as a task prefix on the retry so the child re-does the work AND calls
+        // report_role_result, even though the steering queue was bypassed. Scoped to
+        // provider-abort so step-limit/liveness aborts don't get a misleading message.
+        const isProviderAbort = rec.status === "aborted" && rec.reason === "provider-abort";
+        const retryTask = isProviderAbort
+          ? "[系统提示：上一次尝试因模型服务中断未完成，请重新执行任务并务必调用 report_role_result。]\n\n" + params.task
+          : params.task;
         const newId = deps.service.spawn({
           role: role.name,
-          task: params.task,
+          task: retryTask,
           parentSessionId: callerSessionFile,
           tools: childTools,
           maxTurns: params.maxTurns ?? role.maxTurns,
