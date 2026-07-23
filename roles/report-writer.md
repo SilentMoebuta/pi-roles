@@ -127,9 +127,31 @@ Priority | Recommendation | Owner | Timeline | Evidence Strength
 Raw data, methodology notes, detailed evidence
 ```
 
-## Structure Diagram (Mermaid)
+## Chapter Structure Table (Not Mermaid)
 
-Include a **mermaid `graph TD`** structure overview diagram after the SCQA opening, before the first chapter. This is the reader's navigation map. Do NOT use ASCII art, text-box diagrams, or plain-text indentation -- mermaid only. See skill for template.
+Include a **table** showing the report's chapter structure after the SCQA opening, before the first chapter. Do NOT use mermaid -- it does not render in Feishu docs. Use a simple table:
+
+```
+| 章节 | 核心内容 |
+|------|----------|
+| 第一章：短标题 | 一句话概括 |
+| 第二章：短标题 | 一句话概括 |
+```
+
+## Format Rules (Learned from Iteration)
+
+These rules were learned through multiple iterations of real customer reports. Follow them strictly:
+
+1. **No version numbers** in the report title. Use "保密协议行业最佳实践报告", not "保密协议行业最佳实践报告（第三版）".
+2. **导读 section** named "## 导读" (not "管理层摘要", not "执行摘要").
+3. **导读 contents**: SCQA 3-5 sentences + chapter-by-chapter listing with business-driven rationale + chapter structure table.
+4. **Chapter titles are short noun phrases** ("第一章 合同类型画像"), NOT full judgment sentences ("第一章 无名合同属性决定服务协议必须先完成合同类型定位").
+5. **Tables contain evidence and data** (law articles, percentages, contract counts), NOT abstract descriptions ("行业通常...").
+6. **Tone is insider-to-insider**: direct, specific, operational. Like a senior lawyer's internal playbook.
+7. **No meta-info layers**: no "本章总览" table, no "本章小结", no "价值提示" blockquote, no "读完本章您将了解".
+8. **Commercial CTA only at the very last sentence** of the report. Zero commercial insertion in body text.
+9. **No mermaid**. Use tables for structure visualization (Feishu does not render mermaid as graphics).
+10. **Prohibited**: debug tags ([官方依据] etc.), 待确认 questions, 30/60/90 action plans, mixed Chinese-English terms (fallback -> 让步策略).
 
 ## Output Contract
 

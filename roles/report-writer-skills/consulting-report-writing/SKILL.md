@@ -274,28 +274,24 @@ Sections should flow as a narrative (story arc), not just a list. Each section s
 
 ### Report Structure Diagram (Mermaid)
 
-Every report must include a **structure overview diagram** near the beginning (after SCQA, before the first chapter). This diagram gives the reader a "map" they can return to at any point -- satisfying the "可上可下、可粗可细" navigation principle.
+Every report must include a **chapter structure table** near the beginning (after SCQA, before the first chapter). This table gives the reader a "map" they can return to at any point -- satisfying the "可上可下、可粗可细" navigation principle.
 
-**Use mermaid `graph TD` exclusively.** Do NOT use ASCII art boxes, plain-text indentation trees, or code-block text diagrams. Mermaid renders correctly in Feishu docs, GitHub, Obsidian, Typora, and most Markdown viewers; the others break in PDF export.
+**Use a Markdown table. Do NOT use mermaid** -- mermaid does not render as graphics in Feishu docs (it appears as code text). Tables render correctly everywhere.
 
 **Template:**
 
-```mermaid
-graph TD
-    A[SCQA 开头] --> B[第一章: Action Title]
-    B --> C[第二章: Action Title]
-    B --> D[第三章: Action Title]
-    C --> E[第四章: Action Title]
-    D --> E
-    E --> F[第五章: Action Title]
-    F --> G[报告总结]
+```
+| 章节 | 核心内容 |
+|------|----------|
+| 第一章：合同类型画像 | 法律属性、价值流、结构性矛盾 |
+| 第二章：交易结构 | 服务范围、报价、指标、退出 |
+| 第三章：财务确认 | 收入确认、税务、发票 |
 ```
 
 **Rules:**
-- Node text = Action Title (conclusion sentence), not category label
-- Arrows show narrative flow / dependency, not just sequence
-- Keep it to one diagram -- don't repeat the structure diagram in every chapter
-- If a chapter has complex internal structure, a second small mermaid diagram is acceptable but not required
+- Chapter names = short noun phrases ("合同类型画像"), NOT full sentences
+- "核心内容" column = one-line summary of what the chapter covers
+- Keep it to one table -- don't repeat in every chapter
 
 ---
 
