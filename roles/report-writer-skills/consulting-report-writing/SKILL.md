@@ -272,6 +272,31 @@ Sections should flow as a narrative (story arc), not just a list. Each section s
 
 > **Source**: https://poesius.com/blog/how-mckinsey-bcg-bain-structure-final-presentations
 
+### Report Structure Diagram (Mermaid)
+
+Every report must include a **structure overview diagram** near the beginning (after SCQA, before the first chapter). This diagram gives the reader a "map" they can return to at any point -- satisfying the "可上可下、可粗可细" navigation principle.
+
+**Use mermaid `graph TD` exclusively.** Do NOT use ASCII art boxes, plain-text indentation trees, or code-block text diagrams. Mermaid renders correctly in Feishu docs, GitHub, Obsidian, Typora, and most Markdown viewers; the others break in PDF export.
+
+**Template:**
+
+```mermaid
+graph TD
+    A[SCQA 开头] --> B[第一章: Action Title]
+    B --> C[第二章: Action Title]
+    B --> D[第三章: Action Title]
+    C --> E[第四章: Action Title]
+    D --> E
+    E --> F[第五章: Action Title]
+    F --> G[报告总结]
+```
+
+**Rules:**
+- Node text = Action Title (conclusion sentence), not category label
+- Arrows show narrative flow / dependency, not just sequence
+- Keep it to one diagram -- don't repeat the structure diagram in every chapter
+- If a chapter has complex internal structure, a second small mermaid diagram is acceptable but not required
+
 ---
 
 ## 8. Quality Checklist (Final Review)

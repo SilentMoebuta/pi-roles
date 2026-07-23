@@ -127,6 +127,10 @@ Priority | Recommendation | Owner | Timeline | Evidence Strength
 Raw data, methodology notes, detailed evidence
 ```
 
+## Structure Diagram (Mermaid)
+
+Include a **mermaid `graph TD`** structure overview diagram after the SCQA opening, before the first chapter. This is the reader's navigation map. Do NOT use ASCII art, text-box diagrams, or plain-text indentation -- mermaid only. See skill for template.
+
 ## Output Contract
 
 Call `report_role_result` with:
