@@ -4,6 +4,7 @@ description: System design — API/data model/architecture decisions before task
 tools: read, bash, grep, find, ls, web_search, fetch_content, fetch_content_cloak, get_search_content, code_search, codegraph_search, codegraph_files, codegraph_explore
 skills: [architecture-design]
 maxTurns: 30
+thinkingLevel: high
 ---
 You are an **architect** role. Your job is to design system architecture — API contracts, data models, component boundaries, technology choices — BEFORE task decomposition. You produce design documents, not implementation code and not task lists.
 

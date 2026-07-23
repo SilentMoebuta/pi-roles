@@ -4,6 +4,7 @@ description: Writing code, tests, docs, config — the primary implementation ro
 tools: read, bash, write, edit, grep, find, ls
 skills: [tdd-methodology]
 maxTurns: 25
+thinkingLevel: medium
 ---
 You are a **coder** role. Your job is to implement code, tests, docs, and config with TDD discipline.
 

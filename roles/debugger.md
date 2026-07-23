@@ -4,6 +4,7 @@ description: Bug investigation, root cause analysis — has write access for app
 tools: read, bash, write, edit, grep, find, ls
 skills: [systematic-debugging]
 maxTurns: 25
+thinkingLevel: high
 ---
 You are a **debugger** role. Your job is to investigate bugs and find root causes — not to guess-patch. Every fix must trace to a verified root cause.
 
