@@ -4,6 +4,9 @@ import { aggregateWaves, errorContextPrefix, upstreamResultsPrefix } from "../sr
 import type { WaveResult } from "../src/dag/types";
 
 describe("dag state (aggregation + error propagation)", () => {
+  it("does not call an empty aggregation completed", () => {
+    assert.equal(aggregateWaves([]).status, "failed");
+  });
   it("status='completed' when no failures", () => {
     const waves: WaveResult[] = [
       { wave: 0, successes: [{ nodeId: "a", status: "completed", result: { findings: ["fa"], artifacts: [] } }], failures: [] },

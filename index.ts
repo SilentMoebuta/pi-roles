@@ -19,6 +19,7 @@ import { makeDagResumeTool } from "./src/dag/dag-resume-tool";
 import { createDagVisibility } from "./src/dag/dag-visibility";
 import { registerPmCommands } from "./src/pm-commands";
 import { registerRoleCommands } from "./src/role-commands";
+import { makeListRolesTool } from "./src/role-catalog";
 import { buildRolePersonaPrompt, parseActiveRoleFromBranch } from "./src/active-role";
 import { loadPresets, buildPresetInjection, makeSavePresetTool } from "./src/presets";
 // (agent-end-fallback module removed C5 — dead code, not wired; the child loads
@@ -89,6 +90,8 @@ export default async function (pi: ExtensionAPI): Promise<void> {
       catch (e) { console.error("[pi-roles:notifyParent]", e); }
     },
   }) as any);
+
+  pi.registerTool(makeListRolesTool(roleRegistry) as any);
 
   pi.registerTool(makeDagExecuteTool({
     roleRegistry,
@@ -206,7 +209,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // 显式激活。第三次同型 bug (save_preset / 子session ext tools / dag_resume):
   // 改用显式列表, 以后加主 session 工具只改这一处, 不再散落 active.add()。
   // NOTE: report_role_result 是子 session 专用, 不在此列表。
-  const MAIN_SESSION_TOOLS = ["save_preset", "dag_resume"];
+  const MAIN_SESSION_TOOLS = ["save_preset", "dag_resume", "list_roles"];
   pi.on("session_start", (_event, ctx) => {
     const sm = (ctx as any)?.sessionManager;
     let parentSession: string | undefined;

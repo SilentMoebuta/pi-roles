@@ -47,4 +47,56 @@ describe("dag_resume tool (P4)", () => {
     const tasks = spawned.map((s: any) => s.task ?? "").filter((t: string) => !t.includes("a"));
     assert.ok(spawned.length >= 0, "resume ran (may spawn nothing if all done)");
   });
+
+  it("preflights generated roles from the expanded V2 graph", async () => {
+    const { spawned, svc } = fakeSvc();
+    const checkpoint = JSON.stringify({
+      version: 2,
+      spec: { nodes: {
+        fanout: {
+          task: "dynamic dispatch",
+          expected_output: "Merged work",
+          consumers: ["$result"],
+          dispatch: {},
+        },
+      } },
+      expandedSpec: { nodes: {
+        fanout: {
+          task: "dynamic dispatch",
+          expected_output: "Merged work",
+          consumers: ["$result"],
+          dispatch: {},
+          depends_on: ["fanout::child"],
+        },
+        "fanout::child": {
+          role: "missing",
+          task: "generated work",
+          expected_output: "Generated result",
+          consumers: ["fanout"],
+        },
+      } },
+      scheduler: "ready",
+      nodeStates: { fanout: { status: "running" }, "fanout::child": { status: "queued" } },
+      nodeModes: { fanout: "dynamic" },
+      skipReasons: {},
+      generatedNodes: { "fanout::child": { id: "fanout::child", key: "child", parentId: "fanout" } },
+      dispatchExpansions: { fanout: {
+        parentId: "fanout",
+        generatedNodeIds: ["fanout::child"],
+        source: "dynamic",
+        sends: [{ key: "child", role: "missing", arg: "generated work", expected_output: "Generated result", consumers: ["$parent"] }],
+      } },
+    });
+    const tool = makeDagResumeTool({
+      roleRegistry: new Map([["coder", role("coder")]]),
+      service: svc,
+      reportState: { reported: new Set(), activeRole: new Map(), payloads: new Map() },
+      cwd: "/tmp",
+      agentDir: "/tmp",
+    });
+    const result = await tool.execute("tc-generated-role", { checkpoint }, undefined, undefined, {} as any);
+    assert.equal((result.details as any).status, "error");
+    assert.match((result.details as any).errors.join("\n"), /unknown role 'missing'/);
+    assert.equal(spawned.length, 0);
+  });
 });

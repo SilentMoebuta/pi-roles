@@ -57,4 +57,42 @@ describe("T1-3 end-to-end: custom-schema role round-trips through report_role_re
     const recovered = extractReportPayload(childMessages as any);
     assert.deepEqual(recovered, { findings: ["f1", "f2"], artifacts: ["a.ts"] }, "default schema unchanged");
   });
+
+  it("extracts the accepted retry instead of an earlier schema-mismatched report", () => {
+    const bad = { findings: ["bad"], artifacts: [], sends: [{ role: "coder" }] };
+    const good = {
+      findings: ["planned"],
+      artifacts: [],
+      sends: [{ key: "api", role: "coder", arg: "check api", expected_output: "API result", consumers: ["$parent"] }],
+    };
+    const childMessages = [
+      { role: "assistant", content: [{ type: "toolCall", id: "bad-call", name: "report_role_result", arguments: bad }] },
+      {
+        role: "toolResult",
+        toolCallId: "bad-call",
+        toolName: "report_role_result",
+        isError: false,
+        details: { errorType: "schema_mismatch" },
+        content: [{ type: "text", text: "schema mismatch" }],
+      },
+      { role: "assistant", content: [{ type: "toolCall", id: "good-call", name: "report_role_result", arguments: good }] },
+      {
+        role: "toolResult",
+        toolCallId: "good-call",
+        toolName: "report_role_result",
+        isError: false,
+        content: [{ type: "text", text: "[pi-roles] report accepted. You may now stop." }],
+      },
+      { role: "assistant", content: [{ type: "toolCall", id: "duplicate-call", name: "report_role_result", arguments: bad }] },
+      {
+        role: "toolResult",
+        toolCallId: "duplicate-call",
+        toolName: "report_role_result",
+        isError: false,
+        details: { errorType: "duplicate_report" },
+        content: [{ type: "text", text: "duplicate report" }],
+      },
+    ];
+    assert.deepEqual(extractReportPayload(childMessages), good);
+  });
 });

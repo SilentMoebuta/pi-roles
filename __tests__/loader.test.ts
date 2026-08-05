@@ -28,6 +28,7 @@ describe("pi-roles loader", () => {
     const names = registered.map((t) => t.name);
     assert.ok(names.includes("report_role_result"), "report_role_result registered");
     assert.ok(names.includes("spawn_role"), "spawn_role registered");
+    assert.ok(names.includes("list_roles"), "list_roles registered");
   });
 
   it("does not import @gotgenes/pi-subagents (self-written execution layer replaces it)", async () => {

@@ -29,6 +29,63 @@ describe("dag executor — per-node timeout (SOTA gap #1)", () => {
     const r = await executeDAG(spec, spawnFn);
     assert.equal(r.status, "completed");
   });
+
+  it("bounds a hanging explicit dynamic dispatcher", { timeout: 500 }, async () => {
+    const result = await executeDAGCore({ nodes: {
+      fanout: {
+        task: "hang while choosing work",
+        expected_output: "Chosen work",
+        consumers: ["$result"],
+        dispatch: {},
+        dynamic: async () => new Promise(() => {}),
+        timeout_ms: 5,
+      },
+    } }, async () => { throw new Error("no generated child should spawn"); });
+    assert.equal(result.termination, "all_terminal");
+    assert.equal(result.nodeStates?.fanout.status, "failed");
+    assert.match(result.nodeStates?.fanout.error ?? "", /timeout/);
+  });
+
+  it("bounds a hanging legacy dynamic callback", { timeout: 500 }, async () => {
+    const result = await executeDAGCore({ nodes: {
+      fanout: {
+        task: "legacy hang while choosing work",
+        dynamic: async () => new Promise(() => {}),
+        timeout_ms: 5,
+      },
+    } }, async () => { throw new Error("no generated child should spawn"); });
+    assert.equal(result.termination, "all_terminal");
+    assert.equal(result.nodeStates?.fanout.status, "failed");
+    assert.match(result.nodeStates?.fanout.error ?? "", /timeout/);
+  });
+
+  it("bounds spawn handle creation as part of the node deadline", { timeout: 500 }, async () => {
+    const result = await executeDAGCore({ nodes: {
+      work: { task: "spawn never returns", timeout_ms: 5 },
+    } }, async () => new Promise(() => {}));
+    assert.equal(result.termination, "all_terminal");
+    assert.equal(result.nodeStates?.work.status, "failed");
+    assert.match(result.nodeStates?.work.error ?? "", /timeout/);
+  });
+
+  it("aborts handles that arrive after their node deadline", { timeout: 500 }, async () => {
+    let resolveSpawn!: (handle: Awaited<ReturnType<SpawnFn>>) => void;
+    let abortCalls = 0;
+    const execution = executeDAGCore({ nodes: {
+      work: { task: "spawn returns too late", timeout_ms: 5 },
+    } }, async () => new Promise((resolve) => { resolveSpawn = resolve; }));
+
+    const result = await execution;
+    resolveSpawn({
+      agentId: "late",
+      wait: async () => new Promise(() => {}),
+      abort: () => { abortCalls++; },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.match(result.nodeStates?.work.error ?? "", /timeout/);
+    assert.equal(abortCalls, 1);
+  });
 });
 
 describe("dag executor — mid-DAG abort (SOTA gap #2)", () => {
@@ -66,5 +123,47 @@ describe("dag executor — mid-DAG abort (SOTA gap #2)", () => {
     const r = await executeDAGCore(spec, spawnFn, { signal: ac.signal });
     assert.equal(spawned, false, "nothing spawned on pre-aborted signal");
     assert.equal(r.waves.length, 0, "no waves completed");
+  });
+
+  it("aborts a hanging explicit dynamic dispatcher", { timeout: 500 }, async () => {
+    const controller = new AbortController();
+    queueMicrotask(() => controller.abort());
+    const result = await executeDAGCore({ nodes: {
+      fanout: {
+        task: "hang while choosing work",
+        expected_output: "Chosen work",
+        consumers: ["$result"],
+        dispatch: {},
+        dynamic: async () => new Promise(() => {}),
+      },
+    } }, async () => { throw new Error("no generated child should spawn"); }, { signal: controller.signal });
+    assert.equal(result.termination, "aborted");
+    assert.equal(result.nodeStates?.fanout.status, "failed");
+    assert.match(result.nodeStates?.fanout.error ?? "", /aborted/);
+  });
+
+  it("aborts a hanging legacy dynamic callback", { timeout: 500 }, async () => {
+    const controller = new AbortController();
+    queueMicrotask(() => controller.abort());
+    const result = await executeDAGCore({ nodes: {
+      fanout: {
+        task: "legacy hang while choosing work",
+        dynamic: async () => new Promise(() => {}),
+      },
+    } }, async () => { throw new Error("no generated child should spawn"); }, { signal: controller.signal });
+    assert.equal(result.termination, "aborted");
+    assert.equal(result.nodeStates?.fanout.status, "failed");
+    assert.match(result.nodeStates?.fanout.error ?? "", /aborted/);
+  });
+
+  it("aborts while spawn handle creation is still pending", { timeout: 500 }, async () => {
+    const controller = new AbortController();
+    queueMicrotask(() => controller.abort());
+    const result = await executeDAGCore({ nodes: {
+      work: { task: "spawn never returns" },
+    } }, async () => new Promise(() => {}), { signal: controller.signal });
+    assert.equal(result.termination, "aborted");
+    assert.equal(result.nodeStates?.work.status, "failed");
+    assert.match(result.nodeStates?.work.error ?? "", /aborted/);
   });
 });

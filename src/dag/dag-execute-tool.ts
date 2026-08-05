@@ -16,6 +16,7 @@ import * as os from "node:os";
 import { fileURLToPath } from "node:url";
 import { executeDAGCore, type SpawnFn } from "./executor";
 import { validateDAG } from "./validate";
+import { makeCheckpointV2, serializeCheckpoint, type DAGCheckpointV2 } from "./checkpoint";
 import { makeOnProgress } from "./progress";
 import { resolveModelRef, buildInlineRole, type InlineRoleDef } from "../subagent/spawn-role-tool";
 import { discoverRoleSkillDirs } from "../subagent/role-skills-discovery";
@@ -24,8 +25,10 @@ import type { RoleDef } from "../roles";
 import type { ReportState } from "../report-tool";
 import { makeReportTool } from "../report-tool";
 import { resolveRouteContract } from "./route-contract";
+import { resolveDispatchContract } from "./dispatch-contract";
 import { makeRoleSkillsOverride } from "../subagent/skills-override";
 import type { SpawnToolService } from "../subagent/spawn-role-tool";
+import { DEFAULT_MAX_DISPATCH_CHILDREN, HARD_MAX_DISPATCH_CHILDREN } from "./validate";
 
 const Params = Type.Object({
   spec: Type.Object({
@@ -47,13 +50,30 @@ const Params = Type.Object({
         }, { description: "Custom report_role_result schema for this ad-hoc role. Declare fields the role must return (e.g. a `route` string for a router node). Falls back to {findings, artifacts}. For nodes declaring `routes`, the `route` field is auto-merged — you don't need to declare it here unless you also want other custom fields." })),
       }, { description: "Inline role definition for ad-hoc expert dispatch (cce V4-style). No disk file. Mutually exclusive with role. Safe defaults: canSpawn=false, skills=[]." })),
       task: Type.String(),
+      expected_output: Type.Optional(Type.String({ description: "Concrete artifact, decision, analysis, or verified state produced by this node. Declaring this opts the node into the V2 semantic contract and also requires consumers." })),
+      consumers: Type.Optional(Type.Array(Type.String(), { description: "Direct downstream node ids that consume this output; leaf nodes use the reserved $result consumer." })),
       depends_on: Type.Optional(Type.Array(Type.String())),
+      timeout_ms: Type.Optional(Type.Number({ description: "Per-node timeout in milliseconds." })),
+      priority: Type.Optional(Type.Number({ description: "Ready-scheduler priority. Higher values dispatch first." })),
+      write_scope: Type.Optional(Type.Array(Type.String({ description: "Normalized repo-relative literal file/path or recursive directory scope ending in '/**'. Absolute paths, repository-escaping traversal, and other glob forms are rejected. Plain directory paths such as 'src' retain legacy recursive scope behavior." }))),
+      dispatch: Type.Optional(Type.Object({
+        maxChildren: Type.Optional(Type.Number({ description: "Maximum generated children (default 8, hard max 20)." })),
+      }, { description: "Bounded fan-out contract. With neither sends nor dynamic, this node is spawned as a dispatcher and must return a structured sends array." })),
+      sends: Type.Optional(Type.Array(Type.Object({
+        key: Type.Optional(Type.String({ description: "Stable generated-child key. Required with a V2 semantic send contract." })),
+        role: Type.String(),
+        arg: Type.Union([Type.String(), Type.Record(Type.String(), Type.Unknown())]),
+        expected_output: Type.Optional(Type.String({ description: "Concrete output produced by this generated child." })),
+        consumers: Type.Optional(Type.Array(Type.String(), { description: "Generated children use the reserved $parent consumer." })),
+      }), { description: "Serializable, explicitly declared fan-out. Runtime fan-out is bounded." })),
       model: Type.Optional(Type.String({ description: "Per-node model override (e.g. 'deepseek/deepseek-v4-flash'). Wins over role.frontmatter model + roleDef.model. Omit → role/default. Service-mode: caller threads --model X to every node." })),
       thinkingLevel: Type.Optional(Type.String({ description: "Per-node thinkingLevel override ('low'|'medium'|'high'|'xhigh'|'off'). 'off' disables thinking for speed. Wins over role's." })),
       routes: Type.Optional(Type.Record(Type.String(), Type.Array(Type.String()), { description: "B-class conditional routing whitelist. The node result payload must include route:<key>; selected target ids run, unselected route targets are skipped. Targets must be downstream dependents." })),
     })),
+    maxDepth: Type.Optional(Type.Number({ description: "Deprecated compatibility field. DAG wave count is not nesting depth and this value is ignored." })),
   }),
-  maxConcurrent: Type.Optional(Type.Number({ description: "Max concurrent spawns per wave (default 5). Caps parallel createAgentSession calls to prevent resource exhaustion." })),
+  maxConcurrent: Type.Optional(Type.Number({ description: "Maximum DAG nodes running at once (default 5)." })),
+  scheduler: Type.Optional(Type.Union([Type.Literal("wave"), Type.Literal("ready")], { description: "ready (default) unlocks downstream nodes as soon as their own dependencies settle; wave preserves legacy barriers." })),
 });
 
 export interface DagExecuteDeps {
@@ -93,8 +113,19 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
     } catch { /* no skills dir — skip */ }
   }
 
-  return async (roleName: string | undefined, task, roleDef?: InlineRoleDef, nodeModel?: string, nodeThinking?: string, routes?: Record<string, string[]>) => {
+  return async (
+    roleName: string | undefined,
+    task,
+    roleDef?: InlineRoleDef,
+    nodeModel?: string,
+    nodeThinking?: string,
+    routes?: Record<string, string[]>,
+    dispatchMaxChildren?: number,
+  ) => {
     const role = roleDef ? buildInlineRole(roleDef) : (roleName ? roleRegistry.get(roleName) : undefined);
+    if (roleName && !roleDef && !role) {
+      throw new Error(`unknown role '${roleName}'`);
+    }
     const effectiveName = role?.name ?? roleName; // roleDef.name for inline, roleName for registry, undefined for default
     // model 优先级: node.model (per-node override) > role.model (frontmatter/roleDef) > undefined (inherit main session)
     const modelRef = nodeModel ?? role?.model;
@@ -105,7 +136,14 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
     // contract suffix to the task. Without this the router's report_role_result
     // schema only exposes {findings, artifacts} and the model never returns `route`
     // (live-confirmed 2026-07-01: "missing route in node result").
-    const { schema: effReportSchema, task: effTask } = resolveRouteContract({ outputSchema: role?.outputSchema, task, routes });
+    const routeContract = resolveRouteContract({ outputSchema: role?.outputSchema, task, routes });
+    const { schema: effReportSchema, task: effTask } = resolveDispatchContract({
+      outputSchema: routeContract.schema,
+      task: routeContract.task,
+      maxChildren: dispatchMaxChildren === undefined
+        ? undefined
+        : Math.min(dispatchMaxChildren || DEFAULT_MAX_DISPATCH_CHILDREN, HARD_MAX_DISPATCH_CHILDREN),
+    });
     // If role unknown or omitted, spawn with defaults: full tool set + no persona.
     const childTools = role
       ? Array.from(new Set([...role.tools, "report_role_result"]))
@@ -150,6 +188,7 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
 
     return {
       agentId: id,
+      abort: () => { service.abort(id); },
       wait: async () => {
         const rec = await service.waitForResult(id);
         const payload = rec.reportPayload
@@ -176,9 +215,9 @@ export function makeDagExecuteTool(deps: DagExecuteDeps) {
   return defineTool({
     name: "dag_execute",
     label: "Execute DAG",
-    description: "Execute a DAG of subagent roles — topological waves, parallel spawn per wave, Promise.allSettled barrier, partial-failure isolation. Returns {status, waves, finalContext}.",
+    description: "Execute an admitted DAG of independent subagent work with semantic output/consumer contracts, adaptive ready-node scheduling (or legacy wave barriers), bounded runtime concurrency, partial-failure isolation, and explicit node state. Use direct/specialist execution when there is no real dependency, parallel work, branch, or responsibility boundary.",
     parameters: Params,
-    async execute(_toolCallId: string, params: { spec: DAGSpec; maxConcurrent?: number }, signal, onUpdate, _ctx) {
+    async execute(_toolCallId: string, params: { spec: DAGSpec; maxConcurrent?: number; scheduler?: "wave" | "ready" }, signal, onUpdate, _ctx) {
       const spec = params.spec as DAGSpec;
       if (!spec.nodes || Object.keys(spec.nodes).length === 0) {
         return { content: [{ type: "text" as const, text: JSON.stringify({ status: "failed", reason: "empty DAG" }) }], details: { status: "failed", reason: "empty DAG" } };
@@ -199,13 +238,25 @@ export function makeDagExecuteTool(deps: DagExecuteDeps) {
       // Pre-flight validation: catch bad depends_on refs / unreachable nodes before
       // executing, so DAG spec errors surface immediately instead of silently
       // dropping nodes (chief-reviewer scheduling bug, P0).
-      const validation = validateDAG(spec);
+      const validation = validateDAG(spec, deps.roleRegistry);
       if (!validation.ok) {
-        return { content: [{ type: "text" as const, text: JSON.stringify({ status: "error", errors: validation.errors }) }], details: { status: "error", errors: validation.errors } };
+        const details = { status: "error", errors: validation.errors, admissionDiagnostics: validation.diagnostics };
+        return { content: [{ type: "text" as const, text: JSON.stringify(details) }], details };
       }
 
-      const result = await executeDAGCore(spec, spawnFn, { maxConcurrent: params.maxConcurrent, onProgress, signal });
-      return { content: [{ type: "text" as const, text: JSON.stringify(result) }], details: result };
+      let latestCheckpoint: DAGCheckpointV2 | undefined;
+      const result = await executeDAGCore(spec, spawnFn, {
+        maxConcurrent: params.maxConcurrent,
+        scheduler: params.scheduler,
+        knownRoles: deps.roleRegistry,
+        onProgress,
+        signal,
+        onCheckpoint: (snapshot) => { latestCheckpoint = makeCheckpointV2(spec, snapshot); },
+      });
+      const details = latestCheckpoint
+        ? { ...result, checkpoint: serializeCheckpoint(latestCheckpoint) }
+        : result;
+      return { content: [{ type: "text" as const, text: JSON.stringify(details) }], details };
     },
   });
 }

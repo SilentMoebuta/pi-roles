@@ -46,6 +46,7 @@ describe("dag_execute tool (Gap A)", () => {
     const details = result.details as any;
     assert.equal(details.status, "completed");
     assert.equal(details.waves.length, 2, "wave0: auth+login, wave1: review");
+    assert.equal(JSON.parse(details.checkpoint).scheduler, "ready", "dag_execute defaults to ready scheduling");
     assert.equal(spawned.length, 3, "3 spawns total");
     // Verify role resolution: childTools include report_role_result
     for (const s of spawned) {
@@ -61,6 +62,16 @@ describe("dag_execute tool (Gap A)", () => {
     const result = await tool.execute("tc1", { spec: { nodes: {} } }, undefined, undefined, {} as any);
     assert.equal((result.details as any).status, "failed");
     assert.match((result.details as any).reason, /empty/);
+    assert.equal(spawned.length, 0);
+  });
+
+  it("rejects an explicit unknown role during preflight without spawning", async () => {
+    const spawned: any[] = [];
+    const svc = fakeService(spawned);
+    const tool = makeDagExecuteTool({ roleRegistry: new Map([["coder", role("coder")]]), service: svc, reportState: { reported: new Set(), activeRole: new Map(), payloads: new Map() }, cwd: "/tmp", agentDir: "/tmp" });
+    const result = await tool.execute("tc-unknown", { spec: { nodes: { a: { role: "missing", task: "x" } } } }, undefined, undefined, {} as any);
+    assert.equal((result.details as any).status, "error");
+    assert.match((result.details as any).errors.join("\n"), /unknown role 'missing'/);
     assert.equal(spawned.length, 0);
   });
 

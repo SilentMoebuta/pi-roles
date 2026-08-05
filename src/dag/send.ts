@@ -10,8 +10,16 @@ import type { NodePayload } from "./types";
 
 /** A single dynamic invocation: target role + custom input (the task text). */
 export interface Send {
+  /** Stable identity for a generated child invocation. Optional for legacy
+   *  Sends; required when any V2 semantic-contract field is used. */
+  key?: string;
   role: string;
   arg: Record<string, unknown> | string; // string = task text; object = serialized
+  /** Expected output of this generated invocation. */
+  expected_output?: string;
+  /** Generated outputs are aggregated by their dispatching node, represented
+   *  by the reserved `$parent` consumer. */
+  consumers?: string[];
 }
 
 /** A node that dynamically decides its fan-out at runtime. Returns Send[]. */

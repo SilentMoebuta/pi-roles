@@ -14,7 +14,7 @@ export function aggregateWaves(waves: WaveResult[]): DAGResult {
     total += w.successes.length + w.failures.length + (w.skipped?.length ?? 0);
   }
   const status: DAGResult["status"] =
-    failures === 0 ? "completed" : failures < total ? "partial" : "failed";
+    total === 0 ? "failed" : failures === 0 ? "completed" : failures < total ? "partial" : "failed";
   return { status, waves, finalContext };
 }
 

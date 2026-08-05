@@ -1,6 +1,6 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { validateReport, buildStructuredError, type ReportSchema, type StructuredError, type ReportPayload } from "./contract";
+import { validateReport, buildStructuredError, type ReportPropertySchema, type ReportSchema, type StructuredError, type ReportPayload } from "./contract";
 
 export type { ReportPayload };
 
@@ -27,16 +27,29 @@ export interface ReportToolOptions {
 // to {findings, artifacts}, which meant a role with a custom schema could
 // NEVER get the LLM to call report_role_result with custom fields — the model
 // only saw findings/artifacts. Mirrors DEFAULT_REPORT_SCHEMA when that's passed.
+function propertyToTypeBox(prop: ReportPropertySchema): any {
+  if (prop.type === "string") return Type.String();
+  if (prop.type === "number") return Type.Number();
+  if (prop.type === "boolean") return Type.Boolean();
+  if (prop.type === "array") {
+    const items = prop.items ? propertyToTypeBox(prop.items) : Type.String();
+    return Type.Array(items, prop.maxItems === undefined ? {} : { maxItems: prop.maxItems });
+  }
+  if (prop.type === "object") {
+    const properties = Object.fromEntries(
+      Object.entries(prop.properties ?? {}).map(([key, child]) => [key, propertyToTypeBox(child)]),
+    );
+    return Type.Object(properties as any, { required: prop.required ?? [] });
+  }
+  if (prop.type === "null") return Type.Null();
+  return Type.Any();
+}
+
 function schemaToTypeBox(schema: ReportSchema) {
   const properties: Record<string, unknown> = {};
   for (const [key, prop] of Object.entries(schema.properties)) {
-    // ponytail: map our minimal JsonType to TypeBox primitives. 'array' without
-    // an item type defaults to string[] (the default schema's shape).
-    if (prop.type === "string") properties[key] = Type.String();
-    else if (prop.type === "number") properties[key] = Type.Number();
-    else if (prop.type === "boolean") properties[key] = Type.Boolean();
-    else if (prop.type === "array") properties[key] = Type.Array(Type.String());
-    else properties[key] = Type.Any(); // object/null/unknown
+    // Arrays without an item schema retain the legacy string[] tool surface.
+    properties[key] = propertyToTypeBox(prop);
   }
   // Type.Object expects TProperties; our Record<string,TSchema> is structurally
   // compatible — cast through unknown to satisfy the type without a runtime change.

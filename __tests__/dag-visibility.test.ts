@@ -20,7 +20,13 @@ function fakePi(mode = "tui") {
 const PROGRESS_EVT = (toolCallId: string, task: string) => ({
   toolName: "dag_execute", toolCallId,
   args: { spec: { nodes: { [task]: { task, depends_on: [] } } } },
-  partialResult: { details: { kind: "dag-progress", progress: { currentWave: 0, totalWaves: 1, nodes: { [task]: { task, deps: [], status: "running", wave: 0 } } } } },
+  partialResult: { details: { kind: "dag-progress", progress: {
+    currentWave: 0,
+    totalWaves: 1,
+    scheduler: "ready",
+    explicitStates: true,
+    nodes: { [task]: { status: "running" } },
+  } } },
 });
 
 describe("dag-visibility extension", () => {
@@ -43,6 +49,7 @@ describe("dag-visibility extension", () => {
     assert.ok(Array.isArray(w), "widget content is string[]");
     assert.ok(w.join("\n").includes("task-1"));
     assert.ok(w.join("\n").includes("◐"), "running symbol");
+    assert.ok(w.join("\n").includes("frontier"));
   });
   it("does NOT render in non-tui mode (rpc/json have no widget surface)", () => {
     const pi: any = fakePi("rpc");
@@ -65,5 +72,49 @@ describe("dag-visibility extension", () => {
     pi.emit("tool_execution_end", { toolName: "dag_execute", toolCallId: "t1" });
     const w = pi.widgets["dag-visibility"];
     assert.ok(w && w.join("\n").includes("B"), "t2 still visible after t1 ends");
+  });
+
+  it("restores the previous concurrent DAG when the latest one ends", () => {
+    const pi: any = fakePi();
+    createDagVisibility(pi);
+    pi.emit("tool_execution_update", PROGRESS_EVT("t1", "A"));
+    pi.emit("tool_execution_update", PROGRESS_EVT("t2", "B"));
+    pi.emit("tool_execution_end", { toolName: "dag_execute", toolCallId: "t2" });
+    const w = pi.widgets["dag-visibility"];
+    assert.ok(w && w.join("\n").includes("A"), "t1 is restored after t2 ends");
+  });
+
+  it("uses the expanded event spec so generated children remain visible", () => {
+    const pi: any = fakePi();
+    createDagVisibility(pi);
+    const event: any = PROGRESS_EVT("t1", "fanout");
+    event.partialResult.details.spec = { nodes: {
+      fanout: { task: "fanout" },
+      "fanout::api": { task: "api child", depends_on: ["fanout"] },
+    } };
+    Object.assign(event.partialResult.details.progress, {
+      generatedNodes: {
+        "fanout::api": { id: "fanout::api", key: "api", parentId: "fanout" },
+      },
+      nodes: {
+        fanout: { status: "running" },
+        "fanout::api": { status: "running" },
+      },
+    });
+    pi.emit("tool_execution_update", event);
+    const joined = pi.widgets["dag-visibility"].join("\n");
+    assert.match(joined, /fanout::api/);
+    assert.match(joined, /Generated 1 from fanout/);
+  });
+
+  it("renders dag_resume updates when their event carries the checkpoint spec", () => {
+    const pi: any = fakePi();
+    createDagVisibility(pi);
+    const event: any = PROGRESS_EVT("resume-1", "resumed");
+    event.toolName = "dag_resume";
+    event.partialResult.details.spec = event.args.spec;
+    delete (event as any).args.spec;
+    pi.emit("tool_execution_update", event);
+    assert.match(pi.widgets["dag-visibility"].join("\n"), /resumed/);
   });
 });

@@ -15,6 +15,7 @@ import { hooks, type HookEvent, type HookHandler } from "../hooks";
 import { SubagentRegistry, type SubagentRecord } from "./registry";
 import { runSubagent, type RunOutcome, type SubagentSession } from "./runner";
 import { spawnRole, type SpawnDeps } from "./spawn";
+import { appendSpawnProvenance } from "./provenance";
 
 export interface SubagentServiceParams {
   role?: string;
@@ -254,6 +255,15 @@ export class SubagentsService {
       customTools: params.customTools,
     });
     const session = spawnResult.session;
+    const provenanceWritten = appendSpawnProvenance(spawnResult.sessionManager, {
+      agentId: id,
+      role: params.role ?? "default",
+      sessionId: spawnResult.sessionId,
+      parentSession: params.parentSessionId ?? null,
+    });
+    if (!provenanceWritten) {
+      console.warn(`[pi-roles:spawn] session manager could not persist provenance for ${id}`);
+    }
     // T1-1: record this agent's sessionFile so abort(agentId) can resolve it to
     // the children Map's sessionFile key. Populated here (after spawnRole) where
     // sessionFile is available; cleared on cleanup. Without this the tree-abort
@@ -389,20 +399,38 @@ export function defaultArchiveSession(sessionFile: string): string | undefined {
   }
 }
 
-// Scan child session messages for the report_role_result tool call and extract
-// its arguments. T1-3: returns the FULL args object (was hardcoded to require
-// array-typed findings/artifacts, which discarded custom-schema payloads). A
-// default-schema role still gets {findings, artifacts}; a custom-schema role
-// gets its full shape. Returns undefined if the role never called the tool.
+// Scan child session messages for the accepted report_role_result tool call and
+// extract its full arguments. Schema mismatch deliberately allows a retry, so a
+// call is trusted only when its matching toolResult says the report was accepted.
+// Old/mock transcripts without toolResult messages retain the legacy fallback.
 export function extractReportPayload(messages: any[] | undefined): Record<string, unknown> | undefined {
   if (!messages) return undefined;
+  const calls: Array<{ id?: string; args: Record<string, unknown> }> = [];
+  const acceptedCallIds = new Set<string>();
+  let hasReportResults = false;
   for (const m of messages) {
-    if (m?.role !== "assistant") continue;
-    const calls = (m.content ?? []).filter((c: any) => c?.type === "toolCall" && c?.name === "report_role_result");
-    for (const c of calls) {
-      const args = c.arguments;
-      if (args && typeof args === "object") return { ...args };
+    if (m?.role === "assistant") {
+      for (const call of m.content ?? []) {
+        if (call?.type !== "toolCall" || call?.name !== "report_role_result") continue;
+        const args = call.arguments;
+        if (args && typeof args === "object" && !Array.isArray(args)) {
+          calls.push({ id: call.id ?? call.toolCallId, args: { ...args } });
+        }
+      }
+      continue;
+    }
+    if (m?.role === "toolResult" && m?.toolName === "report_role_result") {
+      hasReportResults = true;
+      const accepted = m.isError !== true
+        && m.details?.errorType === undefined
+        && (m.content ?? []).some((part: any) =>
+          part?.type === "text" && typeof part.text === "string" && part.text.includes("[pi-roles] report accepted"));
+      if (accepted && typeof m.toolCallId === "string") acceptedCallIds.add(m.toolCallId);
     }
   }
-  return undefined;
+  if (hasReportResults) {
+    const accepted = calls.find((call) => call.id !== undefined && acceptedCallIds.has(call.id));
+    return accepted ? { ...accepted.args } : undefined;
+  }
+  return calls.length > 0 ? { ...calls[0].args } : undefined;
 }

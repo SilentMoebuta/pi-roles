@@ -1,177 +1,160 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { renderDagGraph, STATUS_SYMBOL, displayWidth } from "../src/dag/dag-graph";
-import type { DagProgressView } from "../src/dag/progress";
+import { toDagProgress } from "../src/dag/progress";
+import type { DAGProgress, DAGSpec } from "../src/dag/types";
 
-function view(overrides: Partial<DagProgressView> = {}): DagProgressView {
-  return {
-    dagId: "d1", currentWave: 0, totalWaves: 1,
-    nodes: { "task-1": { task: "do A", deps: [], status: "queued", wave: 0 } },
-    ...overrides,
-  };
+function view(
+  spec: DAGSpec,
+  nodes: DAGProgress["nodes"],
+  extra: Partial<DAGProgress> = {},
+) {
+  return toDagProgress(spec, {
+    currentWave: 0,
+    totalWaves: 1,
+    scheduler: "ready",
+    explicitStates: true,
+    nodes,
+    ...extra,
+  }, "d1");
 }
 
-describe("renderDagGraph", () => {
-  it("renders a single node with its name and status symbol", () => {
-    const lines = renderDagGraph(view(), 40);
-    const joined = lines.join("\n");
-    assert.match(joined, /task-1/);
-    assert.ok(lines.some(l => l.includes(STATUS_SYMBOL.queued)), "queued symbol present");
+describe("renderDagGraph frontier view", () => {
+  it("shows a dependency-free queued node as ready work", () => {
+    const spec: DAGSpec = { nodes: { root: { task: "start here" } } };
+    const joined = renderDagGraph(view(spec, { root: { status: "queued" } }), 80).join("\n");
+    assert.match(joined, /Ready \(1\)[\s\S]*○ root/);
+    assert.doesNotMatch(joined, /Blocked \/ waiting/);
   });
-  it("groups nodes by wave (each wave on its own line/block)", () => {
-    const v = view({ totalWaves: 2, currentWave: 1, nodes: {
-      "task-1": { task: "A", deps: [], status: "completed", wave: 0 },
-      "task-2": { task: "B", deps: [], status: "completed", wave: 0 },
-      "task-3": { task: "C", deps: ["task-1"], status: "running", wave: 1 },
-    }});
-    const lines = renderDagGraph(v, 60);
+
+  it("uses scheduler frontier categories as the primary display", () => {
+    const spec: DAGSpec = { nodes: {
+      slow: { task: "slow independent work" },
+      root: { task: "root", priority: 2 },
+      child: { task: "child", depends_on: ["root"] },
+      done: { task: "already done" },
+    } };
+    const lines = renderDagGraph(view(spec, {
+      slow: { status: "running" },
+      root: { status: "queued" },
+      child: { status: "queued" },
+      done: { status: "completed" },
+    }), 100);
     const joined = lines.join("\n");
-    assert.match(joined, /Wave 0/);
-    assert.match(joined, /Wave 1/);
-    assert.ok(joined.indexOf("Wave 0") < joined.indexOf("Wave 1"), "wave 0 before wave 1");
+    assert.match(joined, /frontier · ready scheduler/);
+    assert.match(joined, /Running 1 · Ready 1 · Blocked 1 · Settled 1\/4/);
+    assert.match(joined, /Running \(1\)[\s\S]*slow/);
+    assert.match(joined, /Ready \(1\)[\s\S]*root/);
+    assert.match(joined, /Blocked \/ waiting \(1\)[\s\S]*child.*wait=root/);
+    assert.doesNotMatch(joined, /Wave \d/);
   });
-  it("shows completed symbol for completed node, running for running", () => {
-    const v = view({ nodes: {
-      "task-1": { task: "A", deps: [], status: "completed", wave: 0 },
-      "task-2": { task: "B", deps: [], status: "running", wave: 0 },
-      "task-3": { task: "C", deps: [], status: "failed", wave: 0 },
-    }});
-    const joined = renderDagGraph(v, 80).join("\n");
-    assert.ok(joined.includes(STATUS_SYMBOL.completed));
-    assert.ok(joined.includes(STATUS_SYMBOL.running));
+
+  it("shows failures, route decisions, and generated-node provenance", () => {
+    const spec: DAGSpec = { nodes: {
+      decide: { task: "choose route" },
+      fanout: { task: "fan out" },
+      "fanout::api": { task: "inspect api", depends_on: ["fanout"] },
+      failed: { task: "verify", role: "reviewer" },
+    } };
+    const joined = renderDagGraph(view(spec, {
+      decide: { status: "completed", route: "accept" },
+      fanout: { status: "running" },
+      "fanout::api": { status: "running" },
+      failed: { status: "failed", error: "verification conflict" },
+    }, {
+      generatedNodes: {
+        "fanout::api": { id: "fanout::api", key: "api", parentId: "fanout" },
+      },
+    }), 120).join("\n");
+    assert.match(joined, /Failed \(1\)[\s\S]*verification confli/);
+    assert.match(joined, /Routes  decide=accept/);
+    assert.match(joined, /Generated 1 from fanout/);
+    assert.match(joined, /fanout::api.*from=fanout/);
     assert.ok(joined.includes(STATUS_SYMBOL.failed));
   });
-  it("shows error text for a failed node", () => {
-    const v = view({ nodes: {
-      "task-1": { task: "A", deps: [], status: "failed", wave: 0, error: "boom" },
-    }});
-    const joined = renderDagGraph(v, 80).join("\n");
-    assert.match(joined, /boom/);
+
+  it("labels structural critical-frontier depth without presenting a percentage", () => {
+    const spec: DAGSpec = { nodes: {
+      long: { task: "long root" },
+      middle: { task: "middle", depends_on: ["long"] },
+      leaf: { task: "leaf", depends_on: ["middle"] },
+      short: { task: "short root" },
+    } };
+    const progress = view(spec, {
+      long: { status: "queued" },
+      middle: { status: "queued" },
+      leaf: { status: "queued" },
+      short: { status: "queued" },
+    });
+    assert.deepEqual(progress.frontier.critical, ["long"]);
+    const joined = renderDagGraph(progress, 100).join("\n");
+    assert.match(joined, /long:.*path=3/);
+    assert.doesNotMatch(joined, /%/);
   });
 
-  it("shows route metadata on expanded node lines", () => {
-    const v = view({ nodes: {
-      "task-1": { task: "choose", deps: [], status: "completed", wave: 0, route: "accept" },
-    }});
-    const joined = renderDagGraph(v, 80).join("\n");
-    assert.match(joined, /route=accept/);
+  it("shows role and non-zero priority for scheduler inspection", () => {
+    const spec: DAGSpec = { nodes: {
+      review: { task: "review result", role: "reviewer", priority: 7 },
+    } };
+    const joined = renderDagGraph(view(spec, { review: { status: "running" } }), 100).join("\n");
+    assert.match(joined, /review:.*p=7.*role=reviewer/);
   });
 
-  it("counts skipped as settled in collapsed wave summaries", () => {
-    const v = view({ currentWave: 1, totalWaves: 2, nodes: {
-      "accept": { task: "accept", deps: [], status: "completed", wave: 0 },
-      "revise": { task: "revise", deps: [], status: "skipped", wave: 0, error: "not selected" },
-      "next": { task: "next", deps: ["accept"], status: "running", wave: 1 },
-    }});
-    const line = renderDagGraph(v, 80).find((l) => /Wave 0/.test(l));
-    assert.match(line ?? "", /2\/2/);
-  });
-  it("respects width — truncates long node lists rather than overflowing", () => {
-    const v = view({ nodes: Object.fromEntries(
-      Array.from({length: 10}, (_, i) => [`task-${i}`, { task: `task ${i}`.repeat(5), deps: [], status: "queued", wave: 0 }])
-    )});
-    const lines = renderDagGraph(v, 40);
-    // display-width aware: ASCII counts as 1 col
-    assert.ok(lines.every(l => displayWidth(l) <= 40), "no line exceeds display width");
-  });
-  it("CJK width: Chinese chars count as 2 display columns, not 1 (prevents TUI wrapping)", () => {
-    // A node with a long Chinese task must be truncated by DISPLAY width,
-    // not code-point length — otherwise 40 Chinese chars = 80 code points
-    // would pass a length<=80 check but render as 80 display cols in a 40-col
-    // widget, forcing the TUI to wrap (the real-world bug).
-    const longChinese = "调研 2026 上半年中国大陆主要经济作物的经济回报价格走势亩均收益".repeat(2);
-    const v = view({ nodes: { "task-1": { task: longChinese, deps: [], status: "queued", wave: 0 } } });
-    const lines = renderDagGraph(v, 40);
-    const nodeLine = lines.find(l => l.includes("task-1"))!;
-    assert.ok(displayWidth(nodeLine) <= 40, `node line display width ${displayWidth(nodeLine)} must be <= 40 (CJK=2)`);
-  });
-  it("node line shows a SHORT label, not the full multi-sentence task text", () => {
-    const longTask = "调研 2026 上半年中国大陆主要经济作物（粮油棉糖等大宗类）的经济回报：价格走势、亩均收益、成本结构、种植面积变化、政策补贴。输出结构化 findings";
-    const v = view({ nodes: { "task-1": { task: longTask, deps: [], status: "queued", wave: 0 } } });
-    const lines = renderDagGraph(v, 80);
-    const nodeLine = lines.find(l => l.includes("task-1"))!;
-    // the full long task must NOT appear verbatim on the node line
-    assert.ok(!nodeLine.includes("输出结构化"), "full task tail must not appear on node line");
-    // line should be short enough to be a readable overview
-    assert.ok(displayWidth(nodeLine) <= 80, "node line stays within width");
-  });
-  it("shows header with wave progress (currentWave/totalWaves)", () => {
-    const v = view({ currentWave: 1, totalWaves: 3 });
-    const joined = renderDagGraph(v, 60).join("\n");
-    assert.match(joined, /1.*3/);
-  });
-  it("renders dependency edges as ASCII box-line connectors (├─ └─), not text annotation", () => {
-    const v: DagProgressView = {
-      dagId: "d1", currentWave: 1, totalWaves: 2,
-      nodes: {
-        "task-1": { task: "A", deps: [], status: "completed", wave: 0 },
-        "task-2": { task: "B", deps: [], status: "completed", wave: 0 },
-        "task-3": { task: "C after A+B", deps: ["task-1", "task-2"], status: "running", wave: 1 },
-      },
-    };
-    const lines = renderDagGraph(v, 80);
-    const joined = lines.join("\n");
-    // dep edges rendered with box-line connectors (├─ or └─), not text [deps:]
-    assert.ok(/[├└]─/.test(joined), "box-line connector present (├─ or └─)");
-    // the node line itself must NOT carry an inline [deps:] text annotation
-    const t3Line = lines.find(l => l.includes("task-3") && l.includes(":"))!;
-    assert.doesNotMatch(t3Line, /\[deps/, "no inline [deps:] text annotation on node line");
-    // each dependency appears on its own connector line, prefixed by a box char
-    assert.ok(lines.some(l => /[├└]─.*task-1/.test(l)), "task-1 dep on a connector line");
-    assert.ok(lines.some(l => /[├└]─.*task-2/.test(l)), "task-2 dep on a connector line");
-    // multi-dep: first dep uses ├─ (branch), last uses └─ (terminator)
-    assert.ok(lines.some(l => l.includes("├─") && /task-1/.test(l)), "first dep branches with ├─");
-    assert.ok(lines.some(l => l.includes("└─") && /task-2/.test(l)), "last dep terminates with └─");
+  it("bounds every line by terminal display width, including CJK", () => {
+    const longChinese = "调研中国大陆主要经济作物的价格走势亩均收益成本结构种植面积变化政策补贴".repeat(2);
+    const spec: DAGSpec = { nodes: Object.fromEntries(
+      Array.from({ length: 8 }, (_, index) => [`task-${index}`, { task: `${longChinese}${index}` }]),
+    ) };
+    const nodes = Object.fromEntries(Object.keys(spec.nodes).map((id) => [id, { status: "queued" as const }]));
+    const lines = renderDagGraph(view(spec, nodes), 40);
+    assert.ok(lines.every((line) => displayWidth(line) <= 40));
+    assert.match(lines.join("\n"), /\+4 more/);
   });
 
-  describe("dynamic expand/collapse by wave state", () => {
-    // Multi-wave view: wave 0 done, wave 1 running, wave 2 not started.
-    function multiWaveView(): DagProgressView {
-      return {
-        dagId: "d1", currentWave: 1, totalWaves: 3,
-        nodes: {
-          "task-1": { task: "research A", deps: [], status: "completed", wave: 0 },
-          "task-2": { task: "research B", deps: [], status: "completed", wave: 0 },
-          "task-3": { task: "consolidate", deps: ["task-1", "task-2"], status: "running", wave: 1 },
-          "task-4": { task: "deep dive A", deps: ["task-3"], status: "queued", wave: 2 },
-          "task-5": { task: "deep dive B", deps: ["task-3"], status: "queued", wave: 2 },
-        },
-      };
-    }
-    it("collapses a fully-completed wave into a one-line summary (no node details)", () => {
-      const lines = renderDagGraph(multiWaveView(), 70);
-      // wave 0 is done → collapsed: header line present, node lines absent
-      const w0Header = lines.find(l => /Wave 0/.test(l));
-      assert.ok(w0Header, "Wave 0 header present");
-      // no "task-1: research A" node line under wave 0 (collapsed)
-      const w0Block = lines.slice(lines.indexOf(w0Header!) + 1, lines.findIndex((l, i) => i > lines.indexOf(w0Header!) && /Wave \d/.test(l)));
-      assert.ok(!w0Block.some(l => /task-1:/.test(l) || /task-2:/.test(l)), "completed wave 0 nodes collapsed (no node detail lines)");
-      // summary should show done count
-      assert.match(w0Header!, /2\/2|✓/ , "collapsed wave shows completion");
-    });
-    it("expands the running wave with full node + dep detail", () => {
-      const lines = renderDagGraph(multiWaveView(), 70);
-      // wave 1 is running → expanded: task-3 node line + its dep connectors present
-      assert.ok(lines.some(l => /task-3/.test(l) && /:/.test(l)), "running wave node line shown");
-      assert.ok(lines.some(l => /[├└]─.*task-1/.test(l)), "running wave dep edges shown");
-    });
-    it("collapses a not-yet-started wave into a one-line summary", () => {
-      const lines = renderDagGraph(multiWaveView(), 70);
-      const w2Header = lines.find(l => /Wave 2/.test(l));
-      assert.ok(w2Header, "Wave 2 header present");
-      // no task-4/task-5 node detail lines
-      const w2Block = lines.slice(lines.indexOf(w2Header!) + 1);
-      assert.ok(!w2Block.some(l => /task-4:/.test(l) || /task-5:/.test(l)), "queued wave 2 nodes collapsed");
-      assert.match(w2Header!, /0\/2|queued|○/, "collapsed wave shows queued state");
-    });
-    it("keeps total output short (collapsed waves don't bloat the widget)", () => {
-      const lines = renderDagGraph(multiWaveView(), 70);
-      // 3 wave headers + running wave's ~4 detail lines + header ≈ < 12 lines
-      assert.ok(lines.length <= 12, `output has ${lines.length} lines, should be compact (<=12)`);
-    });
-    it("still shows header with wave progress", () => {
-      const lines = renderDagGraph(multiWaveView(), 70);
-      assert.ok(lines.some(l => /wave 2\/3/.test(l)), "header shows current wave progress");
-    });
+  it("uses a short activity label instead of rendering a full task brief", () => {
+    const task = "Research the API contract, migration behavior, compatibility risks, failure modes, and integration evidence in detail";
+    const spec: DAGSpec = { nodes: { research: { task } } };
+    const joined = renderDagGraph(view(spec, { research: { status: "running" } }), 120).join("\n");
+    assert.match(joined, /Research the API contra/);
+    assert.doesNotMatch(joined, /integration evidence/);
+  });
+
+  it("labels a legacy progress producer as wave-scheduled without restoring wave-primary UI", () => {
+    const spec: DAGSpec = { nodes: { root: { task: "legacy root" } } };
+    const legacy = toDagProgress(spec, { currentWave: 0, totalWaves: 1, nodes: { root: { status: "running" } } });
+    const joined = renderDagGraph(legacy, 80).join("\n");
+    assert.match(joined, /frontier · wave scheduler/);
+    assert.doesNotMatch(joined, /Wave 0|wave 1\/1/);
+  });
+
+  it("keeps terminal success compact while retaining settled state counts", () => {
+    const spec: DAGSpec = { nodes: {
+      a: { task: "A" },
+      b: { task: "B" },
+      c: { task: "C" },
+    } };
+    const lines = renderDagGraph(view(spec, {
+      a: { status: "completed" },
+      b: { status: "skipped" },
+      c: { status: "completed" },
+    }), 80);
+    assert.ok(lines.length <= 3);
+    assert.match(lines.join("\n"), /Settled 3\/3/);
+    assert.match(lines.join("\n"), /✓2 ·1 ✗0/);
+  });
+
+  it("prominently distinguishes a terminal partial outcome from mere settlement", () => {
+    const spec: DAGSpec = { nodes: {
+      ok: { task: "completed work" },
+      bad: { task: "failed verification" },
+    } };
+    const lines = renderDagGraph(view(spec, {
+      ok: { status: "completed" },
+      bad: { status: "failed", error: "evidence conflict" },
+    }, { outcome: "partial", termination: "all_terminal" }), 100);
+    assert.match(lines[0], /PARTIAL/);
+    assert.match(lines[1], /^FAILED 1 ·/);
+    assert.ok(lines.findIndex((line) => /^Failed \(1\)/.test(line)) < lines.findIndex((line) => /^Settled  /.test(line)));
+    assert.match(lines.join("\n"), /bad:.*evidence conflict/);
   });
 });

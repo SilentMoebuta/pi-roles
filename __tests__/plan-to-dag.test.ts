@@ -120,4 +120,33 @@ Review content.
     assert.equal(spec.nodes["task-42"].role, "debugger");
     assert.equal(spec.nodes["task-42"].depends_on, undefined);
   });
+
+  it("parses semantic expected outputs and maps consumers to node ids", () => {
+    const plan = `## Task 1: Inspect parser
+**Role:** debugger | **Deps:** []
+**Expected Output:** Reproducible defect report
+**Consumers:** [2]
+
+Inspect it.
+
+## Task 2: Fix parser
+**Role:** coder | **Deps:** [1]
+**Expected Output:** Tested parser patch
+**Consumers:** [$result]
+
+Fix it.`;
+    const spec = markdownPlanToDagSpec(plan);
+    assert.equal(spec.nodes["task-1"].expected_output, "Reproducible defect report");
+    assert.deepEqual(spec.nodes["task-1"].consumers, ["task-2"]);
+    assert.equal(spec.nodes["task-2"].expected_output, "Tested parser patch");
+    assert.deepEqual(spec.nodes["task-2"].consumers, ["$result"]);
+  });
+
+  it("rejects an unknown numeric consumer", () => {
+    const plan = `## Task 1: Inspect parser
+**Role:** debugger | **Deps:** []
+**Expected Output:** Report
+**Consumers:** [99]`;
+    assert.throws(() => markdownPlanToDagSpec(plan), /unknown consumer task 99/);
+  });
 });

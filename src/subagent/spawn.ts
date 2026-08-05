@@ -19,6 +19,7 @@ export interface SessionManagerLike {
   newSession(options?: { parentSession?: string }): unknown;
   getSessionId(): string;
   getSessionFile(): string | undefined;
+  appendCustomEntry?(customType: string, data: unknown): unknown;
 }
 
 export interface CreateSessionOpts {
@@ -66,6 +67,7 @@ export interface SpawnParams {
 
 export interface SpawnResult {
   session: SubagentSession;
+  sessionManager: SessionManagerLike;
   sessionId: string;
   sessionFile?: string;
   parentSessionSet: boolean;
@@ -95,6 +97,7 @@ export async function spawnRole(deps: SpawnDeps, params: SpawnParams): Promise<S
 
   return {
     session,
+    sessionManager,
     sessionId: sessionManager.getSessionId(),
     sessionFile: sessionManager.getSessionFile() ?? undefined,
     parentSessionSet,

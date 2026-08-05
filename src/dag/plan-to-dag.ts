@@ -21,9 +21,11 @@
 // Conversion:
 // - Task number → node ID "task-N" (e.g. Task 1 → "task-1")
 // - **Role:** X → DAGNode.role
+// - **Expected Output:** X → DAGNode.expected_output
+// - **Consumers:** [N,M,$result] → DAGNode.consumers
 // - Full task content (heading + body) → DAGNode.task
 // - Numeric deps [N,M] → depends_on: ["task-N", "task-M"]
-// - **Wave:** is ignored (planWaves re-sorts topologically)
+// - Legacy **Wave:** metadata is ignored (the scheduler derives readiness)
 
 import type { DAGSpec, DAGNode } from "./types";
 
@@ -90,6 +92,8 @@ export function markdownPlanToDagSpec(markdown: string): DAGSpec {
     // Parse metadata from the section head (the heading line + the metadata line just after)
     const roleMatch = body.match(/\*\*Role:\*\*\s*(\w[\w-]*)/);
     const depsMatch = body.match(/\*\*Deps:\*\*\s*\[([^\]]*)\]/);
+    const expectedOutputMatch = body.match(/\*\*Expected Output:\*\*\s*([^|\n]*)/i);
+    const consumersMatch = body.match(/\*\*Consumers:\*\*\s*\[([^\]]*)\]/i);
     if (!roleMatch) {
       throw new Error(`Task ${tn.num} ("${tn.title}") missing **Role:** field`);
     }
@@ -105,7 +109,29 @@ export function markdownPlanToDagSpec(markdown: string): DAGSpec {
       depends_on.push(id);
     }
 
-    nodes[`task-${tn.num}`] = { role, task: body.trim(), depends_on: depends_on.length > 0 ? depends_on : undefined };
+    let consumers: string[] | undefined;
+    if (consumersMatch) {
+      consumers = consumersMatch[1].trim() === ""
+        ? []
+        : consumersMatch[1].split(",").map((raw) => raw.trim()).map((consumer) => {
+          if (consumer === "$result") return consumer;
+          if (/^task-\d+$/.test(consumer)) return consumer;
+          if (/^\d+$/.test(consumer)) {
+            const id = numToId.get(parseInt(consumer, 10));
+            if (!id) throw new Error(`Task ${tn.num} declares unknown consumer task ${consumer}`);
+            return id;
+          }
+          return consumer;
+        });
+    }
+
+    nodes[`task-${tn.num}`] = {
+      role,
+      task: body.trim(),
+      expected_output: expectedOutputMatch ? expectedOutputMatch[1].trim() : undefined,
+      consumers,
+      depends_on: depends_on.length > 0 ? depends_on : undefined,
+    };
   }
 
   return { nodes };

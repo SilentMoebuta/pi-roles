@@ -1,16 +1,26 @@
 # pi-roles
 
 > Multi-roles for the [pi](https://github.com/earendil-works/pi) coding agent.
-> **Status:** Phase 5 complete + production hardening Tier 1-6 (2026-06-20) + SOTA refresh (2026-06-20, main `694b539`). DAG executor, dynamic Send, checkpoint/resume, planner→DAG bridge, prod-wired tree-abort, proactive auto-compact + output-contract enforcement (reactive P0-4 enforcer + proactive G-OUT-2 tool_choice via before_provider_request), OTel telemetry hook (inert — wire `onTelemetry` to export). 259 tests, tsc 0.
+> **Status:** Phase 5 complete + production hardening Tier 1-6 (2026-06-20) + SOTA refresh (2026-06-20, main `694b539`). DAG executor, dynamic Send, checkpoint/resume, planner→DAG bridge, prod-wired tree-abort, proactive auto-compact + output-contract enforcement (reactive P0-4 enforcer + proactive G-OUT-2 tool_choice via before_provider_request), OTel telemetry hook (inert — wire `onTelemetry` to export).
 
 ## What it does
 
 pi-roles provides a **multi-role subagent orchestration layer** for pi:
 
 - **`spawn_role`** — spawn a role-scoped subagent (researcher, coder, reviewer, planner, debugger) with persona injection, tool whitelist, step limit, model override, and depth-limited recursion.
-- **`dag_execute`** — execute a DAG of subagent roles with topological waves, parallel spawn per wave, `Promise.allSettled` barrier (partial failure isolation), result aggregation, and upstream-data injection. The `role` field on each node is **optional** — omit it for a default subagent that inherits the full tool set with no persona/skill injection, useful for simple tasks that don't need a specialized role. Mixed DAGs (some nodes with a role, some without) are allowed.
-- **`dag_resume`** — resume a DAG from a serialized checkpoint (skip completed waves, preserve prior results).
+- **`dag_execute`** — execute an admitted DAG with adaptive ready-node scheduling (or legacy wave barriers), bounded concurrency, write-scope leases, result aggregation, and upstream-data injection. Bounded result-driven dispatch can add validated scheduler-visible children from a dispatcher's structured report. New nodes can opt into the semantic `expected_output` + `consumers` contract; leaf nodes declare `$result`. The `role` field remains optional for legacy/default subagents.
+- **`dag_resume`** — resume a DAG from a V1 wave or V2 explicit-node checkpoint without replaying terminal nodes or already-expanded dispatchers.
 - **`report_role_result`** — output-contract tool every role must call once; structured `{findings, artifacts}` payload extracted by the service from child session messages.
+
+### Frontier progress
+
+DAG progress is presented as the scheduler frontier rather than as a wave timeline:
+
+- **Running** nodes are executing now; **Ready** nodes have satisfied dependencies and are waiting for scheduler capacity or a write-scope lease.
+- **Blocked** nodes are waiting on the `waitingOn` dependencies (or an explicit legacy wave barrier); **Settled** includes completed, skipped, and failed nodes. Settled is not a success signal: terminal `partial` and `failed` outcomes, plus failed-node details, remain explicit.
+- The **critical** frontier uses `path` to identify the longest remaining structural path for scheduler ordering; it is not a time estimate. Route decisions and scheduler-generated children retain their `route` and parent provenance in progress details.
+- `currentWave`, `totalWaves`, and per-node `wave` remain compatibility fields for older integrations and `scheduler:"wave"`; they are not the primary progress model.
+- The display intentionally has no percentage. Node counts describe execution activity and never act as completion criteria.
 
 ### In-place persona switching (main agent)
 
@@ -40,9 +50,9 @@ src/
   dag/
     types.ts          — DAGSpec, DAGNode, DAGResult, WaveResult, NodeResult, DAGProgress
     planner.ts        — planWaves (Kahn's algorithm, level-by-level)
-    executor.ts       — executeDAGCore / executeDAG (wave loop, dual allSettled barrier,
-                         maxConcurrent semaphore, dynamic-fanout, upstream-results injection,
-                         progress callbacks)
+    executor.ts       — executeDAGCore / executeDAG (ready/wave scheduler, runtime concurrency,
+                         scope leases, validated dynamic fan-out, upstream-results injection)
+    validate.ts       — topology, role, semantic-contract, and dispatch admission
     state.ts          — aggregateWaves, errorContextPrefix, upstreamResultsPrefix
     send.ts           — Send, DynamicNode, DynamicNodeContext, fanOutSends
     checkpoint.ts     — serialize/deserialize checkpoint, resumeDAG
@@ -65,7 +75,7 @@ roles/
 
 ## Test coverage
 
-249 tests, tsc exit 0. `npx tsx --test __tests__/*.test.ts`.
+Run `npm test` and `npm run typecheck`.
 
 ## Design docs
 
