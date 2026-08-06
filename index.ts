@@ -16,6 +16,7 @@ import { makeOutputContractEnforcer } from "./src/subagent/output-contract-enfor
 import { makeOutputContractProactiveHandler } from "./src/subagent/output-contract-proactive";
 import { makeDagExecuteTool, buildSpawnFn } from "./src/dag/dag-execute-tool";
 import { makeDagResumeTool } from "./src/dag/dag-resume-tool";
+import { makeDagRerunTool } from "./src/dag/dag-rerun-tool";
 import { createDagVisibility } from "./src/dag/dag-visibility";
 import { registerPmCommands } from "./src/pm-commands";
 import { registerRoleCommands } from "./src/role-commands";
@@ -102,6 +103,14 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   }) as any);
 
   pi.registerTool(makeDagResumeTool({
+    roleRegistry,
+    service,
+    reportState,
+    cwd: dagCwd,
+    agentDir: dagAgentDir,
+  }) as any);
+
+  pi.registerTool(makeDagRerunTool({
     roleRegistry,
     service,
     reportState,
