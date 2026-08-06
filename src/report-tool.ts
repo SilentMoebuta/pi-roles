@@ -1,5 +1,6 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type, type TSchema } from "typebox";
 import { validateReport, buildStructuredError, type ReportPropertySchema, type ReportSchema, type StructuredError, type ReportPayload } from "./contract";
 
 export type { ReportPayload };
@@ -27,7 +28,7 @@ export interface ReportToolOptions {
 // to {findings, artifacts}, which meant a role with a custom schema could
 // NEVER get the LLM to call report_role_result with custom fields — the model
 // only saw findings/artifacts. Mirrors DEFAULT_REPORT_SCHEMA when that's passed.
-function propertyToTypeBox(prop: ReportPropertySchema): any {
+function propertyToTypeBox(prop: ReportPropertySchema): TSchema {
   if (prop.type === "string") return Type.String();
   if (prop.type === "number") return Type.Number();
   if (prop.type === "boolean") return Type.Boolean();
@@ -39,7 +40,7 @@ function propertyToTypeBox(prop: ReportPropertySchema): any {
     const properties = Object.fromEntries(
       Object.entries(prop.properties ?? {}).map(([key, child]) => [key, propertyToTypeBox(child)]),
     );
-    return Type.Object(properties as any, { required: prop.required ?? [] });
+    return Type.Object(properties as Record<string, TSchema>, { required: prop.required ?? [] });
   }
   if (prop.type === "null") return Type.Null();
   return Type.Any();
@@ -53,7 +54,7 @@ function schemaToTypeBox(schema: ReportSchema) {
   }
   // Type.Object expects TProperties; our Record<string,TSchema> is structurally
   // compatible — cast through unknown to satisfy the type without a runtime change.
-  return Type.Object(properties as any, { required: schema.required });
+  return Type.Object(properties as Record<string, TSchema>, { required: schema.required });
 }
 
 const DefaultParams = Type.Object({
@@ -64,8 +65,8 @@ const DefaultParams = Type.Object({
 // Resolve a stable per-session key from the tool execution context. Falls back
 // to "default" when the session manager is unavailable (e.g. in direct unit
 // tests) so behaviour degrades to a single shared slot rather than crashing.
-function resolveSessionKey(ctx: unknown): string {
-  const sm = (ctx as any)?.sessionManager;
+function resolveSessionKey(ctx: ExtensionContext): string {
+  const sm = ctx?.sessionManager;
   return sm?.getSessionFile?.() ?? sm?.getSessionId?.() ?? "default";
 }
 

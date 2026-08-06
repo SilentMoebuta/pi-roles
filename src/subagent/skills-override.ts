@@ -12,18 +12,18 @@
 // (ExtensionContext exposes no skill-read API, but skillsOverride receives the
 // loaded skills directly).
 
-import type { Skill } from "@earendil-works/pi-coding-agent";
+import type { ResourceDiagnostic, Skill } from "@earendil-works/pi-coding-agent";
 
 // SkillLike removed — now using pi's exported Skill type.
 
 export interface SkillsOverrideInput {
   skills: Skill[];
-  diagnostics: unknown[];
+  diagnostics: ResourceDiagnostic[];
 }
 
 export interface SkillsOverrideOutput {
   skills: Skill[];
-  diagnostics: unknown[];
+  diagnostics: ResourceDiagnostic[];
 }
 
 export interface RoleSkillsOverrideOptions {

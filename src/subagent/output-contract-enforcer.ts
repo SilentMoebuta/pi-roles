@@ -31,7 +31,7 @@ export interface AgentEndEventLike {
 }
 
 export interface OutputContractCtxLike {
-  sessionManager?: { getSessionFile?: () => string | undefined; getHeader?: () => { parentSession?: string } | undefined };
+  sessionManager?: { getSessionFile?: () => string | undefined; getHeader?: () => { parentSession?: string } | null | undefined };
 }
 
 const REPORT_TOOL = "report_role_result";

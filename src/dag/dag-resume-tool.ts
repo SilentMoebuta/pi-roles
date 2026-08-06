@@ -41,7 +41,7 @@ export function makeDagResumeTool(deps: DagExecuteDeps) {
       // Previously built ONCE at registration with NO opts → resumed children got
       // no model resolution, no abort forwarding, no tree-abort membership (silent
       // functional regression; the old test's fake service didn't track these).
-      const ctx = _ctx as any;
+      const ctx = _ctx;
       const spawnFn = buildSpawnFn(deps, {
         modelRegistry: ctx?.modelRegistry,
         signal,

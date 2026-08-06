@@ -28,7 +28,7 @@ export interface ProactiveCtxLike {
     /** Session header — present on child subagents (parentSession set by
      *  spawnRole's newSession({parentSession})). Readable from the child's OWN
      *  sessionManager (decisive fact). Used to gate to role sessions ONLY. */
-    getHeader?: () => { parentSession?: string } | undefined;
+    getHeader?: () => { parentSession?: string } | null | undefined;
   };
 }
 
@@ -53,7 +53,7 @@ export function makeOutputContractProactiveHandler(deps: OutputContractProactive
       return undefined; // malformed ctx — no-op (don't risk breaking the request)
     }
     if (!isChild) return undefined;
-    const p = event.payload as any;
+    const p = event.payload;
     // Some providers reject tool_choice when thinking mode is ACTIVELY enabled
     // (DeepSeek: "Thinking mode does not support this tool_choice"). Skip
     // injection only when thinking is actually on — thinking mode already

@@ -158,7 +158,7 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
       agentDir,
       noSkills: false,
       skillsOverride: makeRoleSkillsOverride({ domainSkills }),
-    } as any);
+    });
     await resourceLoader.reload();
 
     // Per-node ReportState — isolated so one child's payload doesn't pollute another's.
@@ -197,8 +197,8 @@ export function buildSpawnFn(deps: DagExecuteDeps, opts: BuildSpawnFnOpts = {}):
         // DAG NodeResult.result is NodePayload ({findings, artifacts}) — adapt:
         // if the payload has findings/artifacts arrays use them, else wrap as a
         // single finding so custom-schema role output still flows downstream.
-        const np: NodePayload = payload && Array.isArray((payload as any).findings) && Array.isArray((payload as any).artifacts)
-          ? { findings: (payload as any).findings, artifacts: (payload as any).artifacts, ...payload }
+        const np: NodePayload = payload && Array.isArray(payload.findings) && Array.isArray(payload.artifacts)
+          ? { ...payload, findings: payload.findings, artifacts: payload.artifacts }
           : { findings: payload ? [JSON.stringify(payload)] : (rec.result ? [rec.result] : []), artifacts: [] };
         return {
           status: rec.status as "completed" | "aborted" | "error" | "failed",
@@ -224,7 +224,7 @@ export function makeDagExecuteTool(deps: DagExecuteDeps) {
       }
       // T1-4: thread ctx.modelRegistry + the tool AbortSignal + caller sessionFile
       // into buildSpawnFn so each child gets signal/model/parentSessionId forwarded.
-      const ctx = _ctx as any;
+      const ctx = _ctx;
       const spawnFn = buildSpawnFn(deps, {
         modelRegistry: ctx?.modelRegistry,
         signal,

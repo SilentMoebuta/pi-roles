@@ -28,13 +28,20 @@ export interface SessionStartEventLike {
   reason: string;
 }
 
+/** The subset of ExtensionContext the handler reads (child subagent header). */
+export interface SessionStartCtxLike {
+  sessionManager?: {
+    getHeader?: () => { parentSession?: string } | null | undefined;
+  };
+}
+
 /** The tool that must be visible to every role subagent (output contract). */
 const REPORT_TOOL = "report_role_result";
 
 export function makeRoleSessionStartHandler(deps: SessionStartDeps) {
-  return function (event: SessionStartEventLike, ctx: unknown): void {
+  return function (event: SessionStartEventLike, ctx: SessionStartCtxLike): void {
     // Only role sessions (child subagents have parentSession set).
-    const sm = (ctx as any)?.sessionManager;
+    const sm = ctx?.sessionManager;
     let parentSession: string | undefined;
     try {
       parentSession = sm?.getHeader?.()?.parentSession;

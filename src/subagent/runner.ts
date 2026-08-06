@@ -120,20 +120,20 @@ export async function runSubagent(
     }
     if (e.type === "message_end" && e.message.role === "assistant") {
       const text = e.message.content
-        .filter((c) => c.type === "text" && typeof (c as any).text === "string")
-        .map((c) => (c as any).text as string)
+        .filter((c): c is { type: "text"; text: string } => c.type === "text" && typeof c.text === "string")
+        .map((c) => c.text)
         .join("");
       if (text.length > 0) lastAssistantText = text;
       // Provider-abort detection: capture stopReason for post-prompt outcome check.
-      if (typeof (e as any).message.stopReason === "string") {
-        lastAssistantStopReason = (e as any).message.stopReason;
+      if (typeof e.message.stopReason === "string") {
+        lastAssistantStopReason = e.message.stopReason;
       }
       // T1-2: doom-loop on tool-name+input-hash (primary SOTA signal).
       if (doomLoop) {
         const toolCalls = e.message.content.filter((c) => c.type === "toolCall");
         for (const tc of toolCalls) {
-          const name = (tc as any).name ?? "";
-          const args = (tc as any).arguments;
+          const name = tc.name ?? "";
+          const args = tc.arguments;
           const sig = name + "|" + JSON.stringify(args ?? {});
           recentToolSigs.push(sig);
           if (recentToolSigs.length > 3) recentToolSigs.shift();

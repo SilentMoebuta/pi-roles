@@ -49,7 +49,7 @@ export interface AutoCompactCtxLike {
      *  spawnRole's newSession({parentSession})). Used to gate compaction to
      *  role sessions WITHOUT depending on per-instance reportState.activeRole
      *  (which is empty for the child's own pi-roles instance — see P1-5 fix). */
-    getHeader?: () => { parentSession?: string } | undefined;
+    getHeader?: () => { parentSession?: string } | null | undefined;
   };
   compact?: (opts: { customInstructions?: string; onComplete?: () => void; onError?: (e: Error) => void }) => void;
   getContextUsage?: () => { tokens?: number | null } | null | undefined;

@@ -124,7 +124,7 @@ export function handleRoleCommand(args: string, ctx: CommandCtx, deps: RoleComma
 }
 
 export function registerRoleCommands(pi: ExtensionAPI, deps: RoleCommandDeps): void {
-  const register = (pi as any).registerCommand;
+  const register = pi.registerCommand;
   if (typeof register !== "function") return; // mock pi — skip (loader test)
   register.call(pi, "role", {
     description: "Switch the main agent's persona to a role (/role <name>), revert (/role clear), or show current (/role).",

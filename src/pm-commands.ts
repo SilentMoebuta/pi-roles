@@ -104,8 +104,8 @@ function buildTask(cmd: PmCommand, userArgs: string): string {
 /** Register all PM commands with the pi extension API.
  *  Defensive: guards against missing registerCommand/sendMessage (e.g. test mocks). */
 export function registerPmCommands(pi: ExtensionAPI): void {
-  const register = (pi as any).registerCommand;
-  const sendMessage = (pi as any).sendMessage;
+  const register = pi.registerCommand;
+  const sendMessage = pi.sendMessage;
   if (typeof register !== "function") return; // mock pi — skip (loader test)
   for (const cmd of PM_COMMANDS) {
     register.call(pi, cmd.name, {

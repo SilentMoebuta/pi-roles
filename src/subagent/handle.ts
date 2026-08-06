@@ -56,8 +56,8 @@ export class AgentHandle {
     const rec: SpawnToolRecord = await svc.waitForResult(this.id);
     // T1-3: reportPayload may be a custom-schema shape; adapt to NodePayload.
     const rp = rec.reportPayload;
-    const result: NodePayload = rp && Array.isArray((rp as any).findings) && Array.isArray((rp as any).artifacts)
-      ? { findings: (rp as any).findings, artifacts: (rp as any).artifacts, ...rp }
+    const result: NodePayload = rp && Array.isArray(rp.findings) && Array.isArray(rp.artifacts)
+      ? { ...rp, findings: rp.findings, artifacts: rp.artifacts }
       : (rec.result ? { findings: [rec.result], artifacts: [] } : { findings: [], artifacts: [] });
     return {
       status: rec.status as AgentResult["status"],

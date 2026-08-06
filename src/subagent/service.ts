@@ -232,7 +232,7 @@ export class SubagentsService {
   ): Promise<void> {
     // P2-7: telemetry — start event.
     const t0 = Date.now();
-    params.onTelemetry?.({ id, role: params.role, event: "subagent_start", system: "pi-roles", model: (params as any).model });
+    params.onTelemetry?.({ id, role: params.role, event: "subagent_start", system: "pi-roles", model: params.model });
 
     // P1-3: concurrency limiter — gate entry to prevent resource exhaustion.
     while (this.runningSpawns >= this.maxConcurrentSpawns) {
@@ -363,7 +363,7 @@ export class SubagentsService {
 
     } finally {
       // P2-7: telemetry — end event.
-      params.onTelemetry?.({ id, role: params.role, event: "subagent_end", system: "pi-roles", durationMs: Date.now() - t0, turnCount: outcome?.turnCount, status: outcome?.status, model: (params as any).model });
+      params.onTelemetry?.({ id, role: params.role, event: "subagent_end", system: "pi-roles", durationMs: Date.now() - t0, turnCount: outcome?.turnCount, status: outcome?.status, model: params.model });
       // P1-3: release concurrency slot, wake next queued spawn.
       this.runningSpawns--;
       this.spawnQueue.shift()?.();

@@ -148,8 +148,8 @@ export function makeSavePresetTool(opts: SavePresetToolOptions = {}) {
 				}
 				// rec.reportPayload = reviewer 经 report_role_result 报的 {findings, artifacts}(原样, findings[0]=verdict)。
 				// rec.result = NodePayload 适配版。优先 reportPayload。
-				const payload = (rec as any)?.reportPayload ?? (rec as any)?.result ?? {};
-				const findings = (payload as any).findings;
+				const payload: Record<string, unknown> = rec.reportPayload ?? rec.result ?? {};
+				const findings = payload.findings;
 				const text = Array.isArray(findings) ? findings.join("\n")
 					: (typeof findings === "string" ? findings : JSON.stringify(rec));
 				// 兼容两种 verdict 词汇: buildSemanticReviewTask 要求 APPROVED/REJECTED,

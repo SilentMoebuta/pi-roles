@@ -13,6 +13,7 @@
 // degrades to name with allow ignored (forward-compat for per-key glob).
 
 import { defineTool, DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
+import type { Extension, ExtensionContext, LoadExtensionsResult } from "@earendil-works/pi-coding-agent";
 import { createDenyRulesExtension } from "./deny-rules";
 import { loadSkillsFromDir, type Skill } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -199,7 +200,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
     label: "Spawn Role",
     description: "Spawn a role-scoped subagent with persona + tool whitelist + step limit. Foreground: blocks until the role reports its result via report_role_result. Returns {status, result|error, agentId}.",
     parameters: Params,
-    async execute(_toolCallId: string, params: { role?: string; roleDef?: InlineRoleDef; task: string; mode?: "foreground" | "background"; model?: string; maxTurns?: number; thinkingLevel?: string; maxDepth?: number; agentId?: string; retryCount?: number }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: unknown) {
+    async execute(_toolCallId: string, params: { role?: string; roleDef?: InlineRoleDef; task: string; mode?: "foreground" | "background"; model?: string; maxTurns?: number; thinkingLevel?: string; maxDepth?: number; agentId?: string; retryCount?: number }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: ExtensionContext) {
       // Join mode: wait for a background agent by its ID.
       if (params.agentId) {
         const rec = await deps.service.waitForResult(params.agentId);
@@ -230,9 +231,9 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       const childDepth = effectiveMaxDepth - 1;
 
       // Permission: caller role's canSpawn. Main agent (no parentSession) always allowed.
-      const callerParent = (deps.getCallerParentSession ?? (() => (ctx as any)?.sessionManager?.getHeader?.()?.parentSession))();
+      const callerParent = (deps.getCallerParentSession ?? (() => ctx?.sessionManager?.getHeader?.()?.parentSession))();
       if (callerParent) {
-        const callerFile = (deps.getCallerSessionFile ?? (() => (ctx as any)?.sessionManager?.getSessionFile?.()))();
+        const callerFile = (deps.getCallerSessionFile ?? (() => ctx?.sessionManager?.getSessionFile?.()))();
         const callerRoleName = deps.reportState.activeRole.get(callerFile ?? "");
         if (callerRoleName) {
           const callerRole = deps.roleRegistry.get(callerRoleName);
@@ -265,22 +266,24 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         childTools = childTools.filter(t => t !== "spawn_role" && t !== "dag_execute" && t !== "dag_resume");
       }
 
-      const callerSessionFile = (deps.getCallerSessionFile ?? (() => (ctx as any)?.sessionManager?.getSessionFile?.()))();
+      const callerSessionFile = (deps.getCallerSessionFile ?? (() => ctx?.sessionManager?.getSessionFile?.()))();
 
       // Resolve the role's model reference to a real Model object via the
       // tool ctx's modelRegistry (main session registry, in-memory credentials).
       // params.model overrides the role's default model (per-call override).
       // If neither resolves, leave undefined → child inherits session default model.
       const modelRef = params.model ?? role.model;
-      const registry = (ctx as any)?.modelRegistry;
+      const registry = ctx?.modelRegistry;
       const resolvedModel = modelRef && registry ? resolveModelRef(modelRef, registry) : undefined;
 
       // Phase 2: build a child resourceLoader with a role-specific skillsOverride.
       // The child's skill set = baseSkills (pi loads, skillsOverride receives) ∪
       // role.domainSkills. Phase 1 roles (skills:[]) inherit the full common pool
       // unchanged (additive). Main agent's resourceLoader is untouched (zero pollution).
-      const cwd = (ctx as any)?.cwd ?? process.cwd();
-      const agentDir = (ctx as any)?.agentDir ?? path.join(os.homedir(), ".pi", "agent");
+      const cwd = ctx?.cwd ?? process.cwd();
+      // ExtensionContext has no typed agentDir; the runtime injects it, so a
+      // narrow structural read (not `as any`) keeps the fallback honest.
+      const agentDir = (ctx as { agentDir?: string } | undefined)?.agentDir ?? path.join(os.homedir(), ".pi", "agent");
 
       // Load the role's domain skills from role-specific skill directories.
       // Uses pi's public loadSkillsFromDir (ESM: __dirname is undefined; use import.meta.url).
@@ -309,12 +312,12 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         // loaded set; ExtensionRunner.emitToolCall iterates all extensions'
         // handlers. A {block:true} return skips tool execution (agent-loop.js:386).
         extensionsOverride: role.toolDenyRules && Object.keys(role.toolDenyRules).length > 0
-          ? (result: any) => {
-              result.extensions.push(createDenyRulesExtension(role.toolDenyRules!));
+          ? (result: LoadExtensionsResult) => {
+              result.extensions.push(createDenyRulesExtension(role.toolDenyRules!) as Extension);
               return result;
             }
           : undefined,
-      } as any);
+      });
 
       // D-bug fix (2026-07-01 重验 bb93b74 发现的真根因): DefaultResourceLoader
       // 构造时 extensionsResult={extensions:[]}(loaded=false), 必须 reload() 才加载
