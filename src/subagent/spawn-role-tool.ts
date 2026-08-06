@@ -26,6 +26,7 @@ import { makeReportTool } from "../report-tool";
 import { DEFAULT_REPORT_SCHEMA, type ReportSchema } from "../contract";
 import { makeRoleSkillsOverride } from "./skills-override";
 import { discoverRoleSkillDirs } from "./role-skills-discovery";
+import type { SubagentProgressEvent } from "./runner";
 
 // Resolves a role frontmatter model reference (bare id 'deepseek-v4-flash' or
 // 'provider/modelId') to a Model object using the tool execution context's
@@ -46,9 +47,12 @@ export function formatSpawnError(reason: string | undefined, turnCount: number |
 	if (reason === "doom-loop") {
 		return "doom-loop (role repeated the same tool call 3×; the role task likely calls a failing tool or misses a dependency — fix the task or the tool)";
 	}
-	if (reason === "liveness") {
-		return "liveness (no activity within the liveness window; the provider may be hung or the task too large - try a smaller task or check provider health)";
-	}
+  if (reason === "liveness") {
+    return "liveness (no activity within the liveness window; the provider may be hung or the task too large - try a smaller task or check provider health)";
+  }
+  if (reason === "tool-timeout") {
+    return "tool-timeout (a child tool exceeded the maximum duration; inspect the tool/provider or split the reviewer task into smaller edits)";
+  }
 	if (reason === "provider-abort") {
 		return "provider-abort (upstream provider dropped the connection mid-generation; auto-retried if retryCount > 0 - if persistent, try a different model or shorter task)";
 	}
@@ -77,6 +81,7 @@ export interface SpawnToolService {
     customTools?: unknown[];
     onSessionCreated?: (sessionFile: string, role: string) => void;
     onComplete?: (rec: { id: string; status: string; result?: string; error?: string; reportPayload?: Record<string, unknown>; turnCount: number; sessionFile?: string }) => void;
+    onProgress?: (event: SubagentProgressEvent & { id: string; role?: string; sessionFile?: string }) => void;
     signal?: AbortSignal;
   }): string;
   waitForResult(id: string): Promise<SpawnToolRecord>;
@@ -345,6 +350,18 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         deps.reportState.activeRole.set(sessionFile, roleName);
         console.error(`[pi-roles:spawn] recorded activeRole[${sessionFile}]=${roleName}`);
       };
+      // Pi's tool-update channel is the only live bridge from a nested session
+      // to its caller. Keep it structured and sanitized: no assistant text or
+      // tool arguments are forwarded, only lifecycle metadata.
+      const onProgress = typeof _onUpdate === "function"
+        ? (event: SubagentProgressEvent & { id: string; role?: string; sessionFile?: string }) => {
+            const label = event.phase === "tool" ? `tool=${event.tool ?? "unknown"}` : event.phase;
+            (_onUpdate as (update: unknown) => void)({
+              content: [{ type: "text", text: `subagent ${event.id} (${event.role ?? params.role ?? "role"}): ${label}, turns=${event.turnCount}` }],
+              details: { kind: "subagent-progress", ...event },
+            });
+          }
+        : undefined;
 
       const id = deps.service.spawn({
         role: role.name,
@@ -358,6 +375,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         resourceLoader,
         customTools: [childReportTool],
         onSessionCreated,
+        onProgress,
         signal,
         // P0-1: for background mode, notify parent when child completes.
         onComplete: mode === "background" && deps.notifyParent
@@ -428,6 +446,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
           resourceLoader,
           customTools: [retryReportTool],
           onSessionCreated,
+          onProgress,
           signal,
         });
         rec = await deps.service.waitForResult(newId);

@@ -11,7 +11,7 @@
 // Injectable deps keep the orchestration logic testable without a real pi runtime;
 // service.ts wires the real createAgentSession + SessionManager.
 
-import type { SubagentSession } from "./runner";
+import type { SubagentProgressEvent, SubagentSession } from "./runner";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
 
@@ -63,6 +63,7 @@ export interface SpawnParams {
   customTools?: unknown[];
   /** P0-1: called when the background subagent completes. */
   onComplete?: (rec: { id: string; status: string; result?: string; error?: string; reportPayload?: Record<string, unknown>; turnCount: number; sessionFile?: string }) => void;
+  onProgress?: (event: SubagentProgressEvent & { id: string; role?: string; sessionFile?: string }) => void;
 }
 
 export interface SpawnResult {

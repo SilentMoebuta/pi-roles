@@ -45,6 +45,18 @@ export type SubagentEvent =
   | { type: "turn_end" }
   | { type: "agent_end" };
 
+export type SubagentProgressPhase = "thinking" | "tool" | "waiting" | "completed" | "error";
+
+/** Sanitized lifecycle signal safe to expose to a parent session. */
+export interface SubagentProgressEvent {
+  phase: SubagentProgressPhase;
+  turnCount: number;
+  lastActivityAt: number;
+  tool?: string;
+  toolCallId?: string;
+  reason?: string;
+}
+
 export interface RunOptions {
   maxTurns?: number;       // undefined or 0 = unlimited
   signal?: AbortSignal;    // caller abort
@@ -56,6 +68,10 @@ export interface RunOptions {
   /** P1-4 doom-loop detection. DEFAULTS ON. Aborts after 3 consecutive identical
    *  tool-name+input-hash calls (SOTA: OpenCode tracks tool+input, not text). T1-2. */
   doomLoop?: boolean;
+  /** Maximum time a single child tool may run. 0 disables this guard. */
+  toolTimeoutMs?: number;
+  /** Parent-visible, sanitized activity stream. */
+  onProgress?: (event: SubagentProgressEvent) => void;
 }
 
 export type RunStatus = "completed" | "aborted" | "error";
@@ -97,13 +113,19 @@ export async function runSubagent(
   // the assistant-text signal as a secondary (harmless; catches pure text loops).
   const recentToolSigs: string[] = [];
   const recentTexts: string[] = [];
-  let abortReason: "step-limit" | "liveness" | "caller-abort" | "doom-loop" | null = null;
+  let abortReason: "step-limit" | "liveness" | "caller-abort" | "doom-loop" | "tool-timeout" | null = null;
   let lastActivity = Date.now();
   // G-LIV-1: pause liveness while a tool executes (the agent is waiting on an
   // external op, not hung). A long tool that exceeds livenessMs must NOT
   // false-abort a healthy child. A hung PROVIDER (no events at all) keeps
   // toolInProgress=false → liveness still fires (true-positive preserved).
   let toolInProgress = false;
+  let activeToolTimer: NodeJS.Timeout | null = null;
+  const toolTimeoutMs = opts.toolTimeoutMs === undefined ? 900_000 : opts.toolTimeoutMs;
+
+  const emitProgress = (event: Omit<SubagentProgressEvent, "turnCount" | "lastActivityAt">) => {
+    try { opts.onProgress?.({ ...event, turnCount, lastActivityAt: Date.now() }); } catch { /* telemetry is best effort */ }
+  };
 
   const unsub = session.subscribe((e) => {
     // G-LIV-1: refresh liveness on activity mid-turn. tool_execution PAUSES the
@@ -112,11 +134,25 @@ export async function runSubagent(
     // and false-aborts a healthy child (SOTA: LangGraph Runtime.heartbeat).
     if (e.type === "tool_execution_start") {
       toolInProgress = true;
+      if (activeToolTimer) clearTimeout(activeToolTimer);
+      if (toolTimeoutMs > 0) {
+        activeToolTimer = setTimeout(() => {
+          if (abortReason === null) {
+            abortReason = "tool-timeout";
+            emitProgress({ phase: "error", tool: e.toolName, toolCallId: e.toolCallId, reason: "tool-timeout" });
+            try { session.abort(); } catch {}
+          }
+        }, toolTimeoutMs);
+      }
+      emitProgress({ phase: "tool", tool: e.toolName, toolCallId: e.toolCallId });
     } else if (e.type === "tool_execution_end") {
       toolInProgress = false;
+      if (activeToolTimer) { clearTimeout(activeToolTimer); activeToolTimer = null; }
       lastActivity = Date.now();
+      emitProgress({ phase: "thinking", tool: e.toolName, toolCallId: e.toolCallId });
     } else if (e.type === "message_end" || e.type === "message_update") {
       lastActivity = Date.now();
+      emitProgress({ phase: e.type === "message_update" ? "thinking" : "waiting" });
     }
     if (e.type === "message_end" && e.message.role === "assistant") {
       const text = e.message.content
@@ -160,6 +196,7 @@ export async function runSubagent(
         abortReason = "step-limit";
         try { session.abort(); } catch { /* swallow: abort best-effort */ }
       }
+      emitProgress({ phase: "thinking" });
     }
   });
 
@@ -210,6 +247,9 @@ export async function runSubagent(
     } else {
       outcome = { status: "aborted", reason: abortReason, finalText: lastAssistantText, turnCount };
     }
+    emitProgress(outcome.status === "completed"
+      ? { phase: "completed" }
+      : { phase: "error", reason: outcome.reason });
   } catch (err) {
     outcome = {
       status: "error",
@@ -217,9 +257,11 @@ export async function runSubagent(
       finalText: lastAssistantText,
       turnCount,
     };
+    emitProgress({ phase: "error", reason: outcome.reason });
   } finally {
     unsub();
     if (livenessTimer) clearInterval(livenessTimer);
+    if (activeToolTimer) clearTimeout(activeToolTimer);
     if (onCallerAbort && opts.signal) opts.signal.removeEventListener("abort", onCallerAbort);
   }
   return outcome;

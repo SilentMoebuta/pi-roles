@@ -1,5 +1,17 @@
 # pi-roles
 
+## Nested progress and report repair
+
+`spawn_role` forwards a sanitized progress stream to its parent tool update:
+phase, role, agent ID, turn count, tool name, timestamps, and session file. It
+does not forward model text or tool arguments. Child sessions also have a
+maximum tool duration so a hung reviewer cannot hold the parent forever.
+
+Use the `report-reviewer` role for addressable report findings and
+`report-reviser` for bounded edits to existing artifacts. Full rewrites are an
+explicit exceptional path for global structural defects; ordinary findings are
+repaired in place and then re-reviewed.
+
 > Multi-roles for the [pi](https://github.com/earendil-works/pi) coding agent.
 > **Status:** Phase 5 complete + production hardening Tier 1-6 (2026-06-20) + SOTA refresh (2026-06-20, main `694b539`). DAG executor, dynamic Send, checkpoint/resume, planner→DAG bridge, prod-wired tree-abort, proactive auto-compact + output-contract enforcement (reactive P0-4 enforcer + proactive G-OUT-2 tool_choice via before_provider_request), OTel telemetry hook (inert — wire `onTelemetry` to export).
 

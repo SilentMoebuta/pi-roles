@@ -13,7 +13,7 @@ import { hooks, type HookEvent, type HookHandler } from "../hooks";
 // model text.
 
 import { SubagentRegistry, type SubagentRecord } from "./registry";
-import { runSubagent, type RunOutcome, type SubagentSession } from "./runner";
+import { runSubagent, type RunOutcome, type SubagentProgressEvent, type SubagentSession } from "./runner";
 import { spawnRole, type SpawnDeps } from "./spawn";
 import { appendSpawnProvenance } from "./provenance";
 
@@ -29,6 +29,7 @@ export interface SubagentServiceParams {
   customTools?: unknown[];
   maxTurns?: number;
   livenessMs?: number;
+  toolTimeoutMs?: number;
   /** P1-4: enable doom-loop detection (3 repeated identical assistant outputs). */
   doomLoop?: boolean;
   /** P2-7: telemetry callback for timing/status per subagent. Tier-6: OTel gen-ai
@@ -53,6 +54,8 @@ export interface SubagentServiceParams {
    *  record (status, result, reportPayload, turnCount). Fires asynchronously
    *  after the run settles — the spawn call has already returned. */
   onComplete?: (rec: { id: string; status: string; result?: string; error?: string; reportPayload?: Record<string, unknown>; turnCount: number; sessionFile?: string }) => void;
+  /** Parent-visible sanitized child activity. */
+  onProgress?: (event: SubagentProgressEvent & { id: string; role?: string; sessionFile?: string }) => void;
   /** Caller abort signal (e.g. parent turn ESC). */
   signal?: AbortSignal;
 }
@@ -274,6 +277,9 @@ export class SubagentsService {
     if (spawnResult.sessionFile && params.onSessionCreated) {
       params.onSessionCreated(spawnResult.sessionFile, params.role ?? "default");
     }
+    try {
+      params.onProgress?.({ id, role: params.role, sessionFile: spawnResult.sessionFile, phase: "thinking", turnCount: 0, lastActivityAt: Date.now() });
+    } catch { /* progress is best effort */ }
     // Mark running now that the session exists.
     const state = this.registry.stateOf(id);
     state?.markRunning(Date.now());
@@ -301,11 +307,22 @@ export class SubagentsService {
 
     try { await hooks.emit("subagent_spawn:after", { id, role: params.role, task: params.task, parentSessionId: params.parentSessionId, sessionFile: spawnResult.sessionFile }); } catch {}
 
+    let terminalProgress: SubagentProgressEvent | undefined;
     outcome = await runSubagent(session, params.task, {
       maxTurns: params.maxTurns,
       signal,
       livenessMs: params.livenessMs,
+      toolTimeoutMs: params.toolTimeoutMs,
       doomLoop: params.doomLoop,
+      onProgress: (event) => {
+        // The child session is archived after prompt() settles. Delay the
+        // terminal signal until then so the parent receives the readable
+        // archived sessionFile rather than a stale pre-archive path.
+        if (event.phase === "completed" || event.phase === "error") terminalProgress = event;
+        else {
+          try { params.onProgress?.({ ...event, id, role: params.role, sessionFile: spawnResult.sessionFile }); } catch { /* best effort */ }
+        }
+      },
     });
 
     // Extract the report_role_result payload by scanning the child session's
@@ -329,6 +346,9 @@ export class SubagentsService {
       catch { /* best-effort: cleanup failure does not affect the resolved run */ }
     }
     const sessionFileForRecord = archivedSessionFile ?? spawnResult.sessionFile;
+		if (terminalProgress) {
+			try { params.onProgress?.({ ...terminalProgress, id, role: params.role, sessionFile: sessionFileForRecord }); } catch { /* best effort */ }
+		}
 
     this.registry.resolve(id, (s) => {
       if (outcome!.status === "completed") {
