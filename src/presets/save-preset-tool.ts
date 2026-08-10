@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { reviewPresetContent, buildSemanticReviewTask } from "./creator";
+import { reviewPresetContent, buildSemanticReviewTask, parseSemanticReviewDecision, SEMANTIC_REVIEW_OUTPUT_SCHEMA } from "./creator";
 import type { PresetSourceType, PresetTaskType } from "./types";
 import type { SpawnFn } from "../dag/executor";
 
@@ -129,12 +129,23 @@ export function makeSavePresetTool(opts: SavePresetToolOptions = {}) {
 				name, description, taskType, content,
 				existingPresets: opts.existingPresets ?? [],
 			});
+			const semanticReviewer = {
+				name: "preset-semantic-reviewer",
+				description: "Read-only semantic review of a workflow preset before persistence.",
+				prompt: "Perform the requested semantic review and use report_role_result with the declared typed output contract. Do not edit files and do not return a prose-only verdict.",
+				tools: ["read", "grep", "find", "ls"],
+				maxTurns: 20,
+				thinkingLevel: "high",
+				outputSchema: SEMANTIC_REVIEW_OUTPUT_SCHEMA,
+			};
 			let semanticApproved = false;
 			let semanticFeedback = "";
 			try {
 				// buildSpawnFn 返回 SpawnHandle{agentId, wait()} — 审查结果在 wait()。
 				// 旧代码直接当结果用 → JSON.stringify({agentId,wait}) → 永远 REJECT(真 session 暴露)。
-				const handle = await spawnFn("reviewer", reviewTask);
+				// The inline role declares a typed decision contract and is independent
+				// of the disk reviewer's prose vocabulary.
+				const handle = await spawnFn(undefined, reviewTask, semanticReviewer);
 				const rec = await handle.wait();
 				// reviewer abort/error(历史 liveness 问题)给清晰诊断, 不混同于 REJECT。
 				if (rec.status && rec.status !== "completed") {
@@ -146,19 +157,16 @@ export function makeSavePresetTool(opts: SavePresetToolOptions = {}) {
 						details: { stage: "semantic", approved: false, error: rec.error ?? rec.status },
 					};
 				}
-				// rec.reportPayload = reviewer 经 report_role_result 报的 {findings, artifacts}(原样, findings[0]=verdict)。
-				// rec.result = NodePayload 适配版。优先 reportPayload。
-				const payload: Record<string, unknown> = rec.reportPayload ?? rec.result ?? {};
-				const findings = payload.findings;
-				const text = Array.isArray(findings) ? findings.join("\n")
-					: (typeof findings === "string" ? findings : JSON.stringify(rec));
-				// 兼容两种 verdict 词汇: buildSemanticReviewTask 要求 APPROVED/REJECTED,
-				// 但 reviewer.md 角色习语是 ✅ Ready / ❌ Not ready。Reject 信号优先
-				// (防 "Not ready" 含 "Ready" 误判为 approve)。
-				const hasReject = /\bREJECTED\b/i.test(text) || /❌/.test(text) || /\bNot ready\b/i.test(text);
-				const hasApprove = /\bAPPROVED\b/i.test(text) || /✅/.test(text) || /\bReady\b/i.test(text);
-				semanticApproved = hasApprove && !hasReject;
-				semanticFeedback = text;
+				const payload: Record<string, unknown> = rec.reportPayload ?? {};
+				const parsed = parseSemanticReviewDecision(payload);
+				if ("error" in parsed) {
+					return {
+						content: [{ type: "text" as const, text: `Semantic review returned an invalid typed payload (${parsed.error}). Preset not saved.` }],
+						details: { stage: "semantic", approved: false, errorType: "schema_invalid", error: parsed.error },
+					};
+				}
+				semanticApproved = parsed.approved;
+				semanticFeedback = parsed.feedback;
 			} catch (e) {
 				return {
 					content: [{

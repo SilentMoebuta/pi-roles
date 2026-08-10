@@ -104,6 +104,10 @@ Run `npm test` and `npm run typecheck`. Published V1 schemas for workflow,
 batch manifest/result, profile layers, role results, and reviewer payloads live
 under `schemas/`.
 
+Preset semantic review uses an ad-hoc read-only reviewer with a typed
+`verdict/summary/findings/artifacts` output contract. The `save_preset` path
+fails closed on malformed payloads and does not parse `Ready/Not ready` prose.
+
 ## Design docs
 
 Design rationale and per-fix criteria IDs are documented in the commit history (each commit cites its criterion, e.g. c6b51c5 / c0e3ff6 / c05c88d / caff7f9 / c51ac1a) and in the per-role methodology `SKILL.md` files under `roles/*-skills/`. There are no in-repo design-doc files.

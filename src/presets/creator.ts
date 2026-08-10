@@ -1,4 +1,33 @@
 import type { ReviewInput, ReviewResult } from "./types";
+import type { ReportSchema } from "../contract";
+
+/** Machine contract for the preset semantic reviewer. */
+export const SEMANTIC_REVIEW_OUTPUT_SCHEMA: ReportSchema = {
+	type: "object",
+	required: ["verdict", "summary", "findings", "artifacts"],
+	properties: {
+		verdict: { type: "string", enum: ["approved", "rejected"] },
+		summary: { type: "string" },
+		findings: { type: "array" },
+		artifacts: { type: "array" },
+	},
+};
+
+export interface SemanticReviewDecision {
+	approved: boolean;
+	feedback: string;
+}
+
+export function parseSemanticReviewDecision(value: unknown): SemanticReviewDecision | { error: string } {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return { error: "review payload must be an object" };
+	const payload = value as Record<string, unknown>;
+	if (payload.verdict !== "approved" && payload.verdict !== "rejected") return { error: "review payload.verdict must be approved or rejected" };
+	if (typeof payload.summary !== "string" || !payload.summary.trim()) return { error: "review payload.summary is required" };
+	if (!Array.isArray(payload.findings)) return { error: "review payload.findings must be an array" };
+	if (!Array.isArray(payload.artifacts)) return { error: "review payload.artifacts must be an array" };
+	const findingText = payload.findings.map((finding) => typeof finding === "string" ? finding : JSON.stringify(finding)).filter(Boolean).join("\n");
+	return { approved: payload.verdict === "approved", feedback: [payload.summary, findingText].filter(Boolean).join("\n") };
+}
 
 const LEGAL_TASK_TYPES = ["coding", "research", "pm", "review", "debug"];
 const LEGAL_SOURCES = ["builtin", "user", "agent"];
@@ -85,8 +114,10 @@ export function buildSemanticReviewTask(input: {
 		"2. DUPLICATION: Does this preset duplicate an existing preset's purpose? (Check against the existing list above.)\n" +
 		"3. DESCRIPTION ACCURACY: Does the description accurately describe what the preset does? Not misleading or empty?\n" +
 		"4. MISSING/LOGIC GAPS: Are there missing steps or logic holes that would make the workflow fail or confuse?\n\n" +
-		"Return APPROVED only if the preset is safe to save as PROVISIONAL after this review; approval is not long-term best-practice promotion. " +
-		"Return REJECTED with specific, actionable feedback if any dimension fails. " +
-		"Be honest — this prevents low-quality presets from accumulating in the library."
+		"Set verdict to approved only if the preset is safe to save as PROVISIONAL after this review; approval is not long-term best-practice promotion. " +
+		"Set verdict to rejected with specific, actionable findings if any dimension fails. " +
+		"Be honest — this prevents low-quality presets from accumulating in the library.\n\n" +
+		"Machine output contract: call report_role_result exactly once with verdict (lowercase approved or rejected), " +
+		"summary (one concise sentence), findings (actionable strings, empty when approved), and artifacts (empty unless a reviewed file is available)."
 	);
 }
