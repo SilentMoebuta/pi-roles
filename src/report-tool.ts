@@ -29,7 +29,11 @@ export interface ReportToolOptions {
 // NEVER get the LLM to call report_role_result with custom fields — the model
 // only saw findings/artifacts. Mirrors DEFAULT_REPORT_SCHEMA when that's passed.
 function propertyToTypeBox(prop: ReportPropertySchema): TSchema {
-  if (prop.type === "string") return Type.String();
+  if (prop.enum && prop.enum.length > 0) {
+    const literals = prop.enum.map((value) => Type.Literal(value));
+    return literals.length === 1 ? literals[0] : Type.Union(literals);
+  }
+  if (prop.type === "string") return Type.String(prop.pattern === undefined ? {} : { pattern: prop.pattern });
   if (prop.type === "number") return Type.Number();
   if (prop.type === "boolean") return Type.Boolean();
   if (prop.type === "array") {

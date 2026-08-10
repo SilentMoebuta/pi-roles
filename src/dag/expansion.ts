@@ -51,6 +51,7 @@ export function expandDispatchNode(
       timeout_ms: parent.timeout_ms,
       priority: parent.priority,
       write_scope: parent.write_scope ? [...parent.write_scope] : undefined,
+      resource_scope: parent.resource_scope ? [...parent.resource_scope] : undefined,
     };
     generatedNodes[id] = { id, key: send.key!.trim(), parentId };
   }

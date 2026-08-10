@@ -22,7 +22,16 @@ pi-roles provides a **multi-role subagent orchestration layer** for pi:
 - **`spawn_role`** — spawn a role-scoped subagent (researcher, coder, reviewer, planner, debugger) with persona injection, tool whitelist, step limit, model override, and depth-limited recursion.
 - **`dag_execute`** — execute an admitted DAG with adaptive ready-node scheduling (or legacy wave barriers), bounded concurrency, write-scope leases, result aggregation, and upstream-data injection. Bounded result-driven dispatch can add validated scheduler-visible children from a dispatcher's structured report. New nodes can opt into the semantic `expected_output` + `consumers` contract; leaf nodes declare `$result`. The `role` field remains optional for legacy/default subagents.
 - **`dag_resume`** — resume a DAG from a V1 wave or V2 explicit-node checkpoint without replaying terminal nodes or already-expanded dispatchers.
+- **`workflow_execute`** — execute the shared V1 workflow contract for direct, sequential, parallel, conditional, bounded loop, map/reduce, handoff, and DAG workflows. Acyclic kinds compile into `dag_execute`; loop iterations use a bounded runtime with the same role/resource adapter.
+- **`batch_execute`** — run a typed batch manifest through the same role adapter, resource lease table, abort signal, and typed result projection; pass a prior aggregate with `mode: "failed_only"` to retry only retryable failures.
 - **`report_role_result`** — output-contract tool every role must call once; structured `{findings, artifacts}` payload extracted by the service from child session messages.
+
+The reusable runtime APIs also include `executeBatchManifest` for bounded batch
+execution with failed-only retry and resource leases, and
+`resolveProfileLayers` for organization/user/repository composition. Profile
+components can carry ordinary settings, skills, MCP configuration, hooks, and
+project policy; organization-enforced values are applied last. These APIs are
+project-neutral and do not encode any report-specific role or path.
 
 ### Frontier progress
 
@@ -69,8 +78,12 @@ src/
     send.ts           — Send, DynamicNode, DynamicNodeContext, fanOutSends
     checkpoint.ts     — serialize/deserialize checkpoint, resumeDAG
     dag-execute-tool.ts — dag_execute tool (LLM entry point with full role resolution)
+    workflow-execute-tool.ts — unified workflow contract adapter
+    batch-execute-tool.ts — batch_execute tool (typed manifest execution and failed-only retry)
     dag-resume-tool.ts  — dag_resume tool (resumes from serialized checkpoint)
     plan-to-dag.ts    — markdownPlanToDagSpec (planner → DAGSpec bridge, P1)
+    batch-runtime.ts    — batch manifest/aggregate/failed-only retry runtime
+  profile-layers.ts     — organization/user/repository profile composition
   contract.ts         — validateReport, buildStructuredError (output-contract schema)
   report-tool.ts      — makeReportTool (report_role_result definition)
   roles.ts            — parseRoleFrontmatter (from roles/*.md)
@@ -87,7 +100,9 @@ roles/
 
 ## Test coverage
 
-Run `npm test` and `npm run typecheck`.
+Run `npm test` and `npm run typecheck`. Published V1 schemas for workflow,
+batch manifest/result, profile layers, role results, and reviewer payloads live
+under `schemas/`.
 
 ## Design docs
 

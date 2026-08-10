@@ -5,6 +5,7 @@ import type {
   DAGSpec,
   NodePayload,
   NodeResult,
+  WorkflowLineage,
   WaveResult,
 } from "./types";
 import type { Wave } from "./planner";
@@ -102,6 +103,7 @@ export function buildResult(
   finishedAt: number,
   counters: ExecutionCounters,
   admissionDiagnostics: DAGAdmissionDiagnostic[],
+  workflow: WorkflowLineage,
 ): DAGResult {
   const counts = { completed: 0, failed: 0, skipped: 0, queued: 0, running: 0 };
   const finalContext: Record<string, NodePayload> = {};
@@ -119,6 +121,7 @@ export function buildResult(
   const wallTimeMs = elapsedMs(startedAt, finishedAt);
   return {
     status,
+    workflow,
     waves: projectWaves(waves, nodeResults),
     finalContext,
     nodeStates: copyStates(states),

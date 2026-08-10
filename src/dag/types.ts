@@ -53,6 +53,9 @@ export interface DAGNode {
    *  nodes with overlapping declared scopes at the same time. Omitted scopes
    *  preserve legacy behavior and do not acquire a lease. */
   write_scope?: string[];
+  /** Generic hierarchical resource URIs, for example file://repo/docs/**,
+   * worktree://repo/feature-a, or mailbox://ops/customer-42. */
+  resource_scope?: string[];
   /** Bounds a fan-out. With `sends` this expands declared data, with `dynamic`
    *  it invokes the legacy in-process callback, and with neither it spawns this
    *  node as a dispatcher whose structured result must contain `sends`. */
@@ -67,6 +70,10 @@ export interface DAGNode {
 
 export interface DAGSpec {
   nodes: Record<string, DAGNode>;
+  /** Optional Goal Contract lineage. The tool adapter supplies workflowId when
+   * omitted; goal fields let pi-goal correlate DAG nodes without coupling the
+   * pi-roles runtime to pi-goal state storage. */
+  lineage?: Partial<WorkflowLineage>;
   /** @deprecated DAG topology depth is not subagent nesting depth. Retained only
    *  for input compatibility and intentionally ignored by the executor. */
   maxDepth?: number;
@@ -83,6 +90,9 @@ export type DAGNodeStatus = "queued" | "running" | "completed" | "failed" | "ski
 export interface DAGNodeState {
   status: DAGNodeStatus;
   error?: string;
+  /** Typed error for new checkpoints; `error` remains the display projection. */
+  errorInfo?: DAGNodeError;
+  attemptNumber?: number;
   route?: string;
   /** First time this node became dependency-ready in the current execution. */
   readyAt?: number;
@@ -100,7 +110,56 @@ export interface NodeResult {
   nodeId: string;
   status: "completed" | "failed" | "skipped";
   result?: NodePayload;
+  /** Stable typed failure taxonomy. Legacy checkpoints may omit this field. */
+  errorInfo?: DAGNodeError;
   error?: string;
+  /** Number of the attempt that produced this result. */
+  attemptNumber?: number;
+  /** Optional only for decoding checkpoints produced before lineage V1. */
+  resultId?: string;
+  lineage?: WorkflowNodeLineage;
+}
+
+export type DAGErrorCode =
+  | "rate_limit"
+  | "capacity"
+  | "network"
+  | "provider_abort"
+  | "worker_crash"
+  | "timeout"
+  | "schema_invalid"
+  | "verification_failed"
+  | "policy_denied"
+  | "approval_required"
+  | "budget_exhausted"
+  | "cancelled"
+  | "internal";
+
+export type DAGErrorRecovery = "retry_attempt" | "repair_schema" | "revise" | "wait_approval" | "wait_user" | "stop";
+
+export interface DAGNodeError {
+  code: DAGErrorCode;
+  message: string;
+  retryable: boolean;
+  recovery: DAGErrorRecovery;
+  details?: Record<string, unknown>;
+}
+
+export interface WorkflowLineage {
+  workflowId: string;
+  goalDefinitionId: string | null;
+  revisionId: string | null;
+  runId: string | null;
+  attemptId: string | null;
+  parentWorkflowId: string | null;
+  previousWorkflowId: string | null;
+}
+
+export interface WorkflowNodeLineage extends WorkflowLineage {
+  nodeId: string;
+  parentNodeId: string | null;
+  previousResultId: string | null;
+  attemptNumber?: number;
 }
 
 export interface WaveResult {
@@ -116,6 +175,8 @@ export interface WaveResult {
 
 export interface DAGResult {
   status: "completed" | "partial" | "failed";
+  /** Present on every new execution; absent only on legacy decoded values. */
+  workflow?: WorkflowLineage;
   waves: WaveResult[];
   finalContext: Record<string, NodePayload>;
   /** Explicit state for every declared node. A result is never "completed"
@@ -210,6 +271,7 @@ export interface DAGProgress {
 }
 
 export interface DAGExecutionSnapshot {
+  workflow?: WorkflowLineage;
   scheduler: DAGScheduler;
   expandedSpec: DAGSpec;
   /** Preserved across resume so a JSON-stripped dynamic closure cannot be
@@ -220,4 +282,8 @@ export interface DAGExecutionSnapshot {
   skipReasons: Record<string, string>;
   generatedNodes: Record<string, GeneratedNodeRecord>;
   dispatchExpansions: Record<string, DispatchExpansionRecord>;
+  /** P1 runtime checkpoint material; adapters may leave these empty. */
+  artifactDigests?: Record<string, { uri: string; digest: string; sizeBytes: number; verifiedAt: number }>;
+  approvals?: Record<string, { decision: "pending" | "granted" | "denied" | "revoked"; capability: string; scope: string; revisionId: string; decidedAt?: number }>;
+  sideEffectJournal?: Record<string, { idempotencyKey: string; operation: string; resource: string; requestDigest: string; status: "prepared" | "committed" | "failed"; attemptId: string; completedAt?: number }>;
 }

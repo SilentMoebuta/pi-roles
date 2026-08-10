@@ -53,4 +53,25 @@ describe("report_role_result — dynamic schema (T1-3)", () => {
     const stored = state.payloads.get("/tmp/child.jsonl");
     assert.deepEqual(stored, { rootCause: "null deref", fix: "guard added", testAdded: "test_guard.ts" }, "full custom payload stored, not flattened to findings/artifacts");
   });
+
+  it("enforces scalar enum values before a typed result is accepted", async () => {
+    const state = freshState();
+    const schema: ReportSchema = {
+      type: "object",
+      required: ["decision"],
+      properties: { decision: { type: "string", enum: ["accept", "revise", "blocked"] } },
+    };
+    const tool = makeReportTool({ state, schema, failedStep: "goal-reviewer" });
+    const params = (tool as any).parameters?.properties?.decision;
+    assert.deepEqual(params.anyOf?.map((entry: any) => entry.const), ["accept", "revise", "blocked"]);
+
+    const ctx = { sessionManager: { getSessionFile: () => "/tmp/reviewer.jsonl" } };
+    const rejected = await (tool as any).execute("bad", { decision: "verified" }, undefined, undefined, ctx);
+    assert.equal((rejected as any).details?.errorType, "schema_mismatch");
+    assert.match((rejected as any).details?.message ?? "", /accept.*revise.*blocked/);
+
+    const accepted = await (tool as any).execute("good", { decision: "accept" }, undefined, undefined, ctx);
+    assert.equal((accepted as any).details, undefined);
+    assert.deepEqual(state.payloads.get("/tmp/reviewer.jsonl"), { decision: "accept" });
+  });
 });

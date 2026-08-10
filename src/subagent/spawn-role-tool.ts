@@ -27,6 +27,7 @@ import { DEFAULT_REPORT_SCHEMA, type ReportSchema } from "../contract";
 import { makeRoleSkillsOverride } from "./skills-override";
 import { discoverRoleSkillDirs } from "./role-skills-discovery";
 import type { SubagentProgressEvent } from "./runner";
+import { createRoleResultEnvelope, roleResultRef, type RoleResultEnvelopeV1 } from "../role-result";
 
 // Resolves a role frontmatter model reference (bare id 'deepseek-v4-flash' or
 // 'provider/modelId') to a Model object using the tool execution context's
@@ -113,6 +114,8 @@ export interface SpawnToolDeps {
   /** P0-1: inject a message into the parent session (pi.sendUserMessage).
    *  Used by background mode to notify the parent when a child completes. */
   notifyParent?: (text: string) => void;
+  /** Persist a typed role result in the parent session. */
+  recordResult?: (result: RoleResultEnvelopeV1) => void;
 }
 
 /** Inline role definition for ad-hoc expert dispatch (cce V4-style dynamic
@@ -255,6 +258,21 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       }
       const role = resolved.role;
 
+      const persistRoleResult = (rec: SpawnToolRecord, payload?: Record<string, unknown>) => {
+        const envelope = createRoleResultEnvelope({
+          agentId: rec.id,
+          role: role.name,
+          status: rec.status,
+          ...(payload === undefined ? {} : { payload }),
+          ...(rec.error === undefined ? {} : { error: rec.error }),
+          ...(rec.reason === undefined ? {} : { reason: rec.reason }),
+          turnCount: rec.turnCount ?? 0,
+          recordedAt: (deps.now ?? Date.now)(),
+        });
+        deps.recordResult?.(envelope);
+        return roleResultRef(envelope);
+      };
+
       // The role's `tools` whitelist drives the child's createSession allowlist.
       // BUT report_role_result is the output-contract tool — every role MUST be
       // able to call it to report its structured result, so force-include it.
@@ -378,17 +396,18 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         onProgress,
         signal,
         // P0-1: for background mode, notify parent when child completes.
-        onComplete: mode === "background" && deps.notifyParent
-          ? (rec: { id: string; status: string; result?: string; reportPayload?: Record<string, unknown>; sessionFile?: string }) => {
+        onComplete: mode === "background" && (deps.notifyParent || deps.recordResult)
+          ? (rec: { id: string; status: string; result?: string; error?: string; reportPayload?: Record<string, unknown>; turnCount: number; sessionFile?: string }) => {
               const payload = rec.reportPayload
                 ?? (rec.result ? { findings: [rec.result], artifacts: [] } : { findings: [], artifacts: [] });
-              deps.notifyParent!(
+              deps.notifyParent?.(
                 `[Background task ${rec.id} (${params.role}) completed: ${rec.status}]\nFindings: ${JSON.stringify(payload.findings)}\nArtifacts: ${JSON.stringify(payload.artifacts)}`
               );
               // Also store the payload in reportState for join to pick up.
               if (rec.sessionFile) {
                 deps.reportState.payloads.set(rec.sessionFile, payload);
               }
+              persistRoleResult(rec, payload);
             }
           : undefined,
       });
@@ -456,9 +475,11 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         ?? (rec.sessionFile ? deps.reportState.payloads.get(rec.sessionFile) : undefined);
       const result = payload ?? (rec.result ? { findings: [rec.result], artifacts: [] } : { findings: [], artifacts: [] });
 
-      if (rec.status === "completed") return okResult({ status: "completed", result, agentId: rec.id ?? id, sessionFile: rec.sessionFile });
-      if (rec.status === "aborted") return okResult({ status: "aborted", error: formatSpawnError(rec.reason, rec.turnCount), agentId: rec.id ?? id, sessionFile: rec.sessionFile });
-      return okResult({ status: "error", error: rec.error ?? rec.reason ?? "unknown error", agentId: rec.id ?? id, sessionFile: rec.sessionFile });
+      const normalizedRecord: SpawnToolRecord = { ...rec, id: rec.id ?? id };
+      const resultRef = persistRoleResult(normalizedRecord, result);
+      if (rec.status === "completed") return okResult({ status: "completed", result, resultRef, agentId: normalizedRecord.id, sessionFile: rec.sessionFile });
+      if (rec.status === "aborted") return okResult({ status: "aborted", error: formatSpawnError(rec.reason, rec.turnCount), resultRef, agentId: normalizedRecord.id, sessionFile: rec.sessionFile });
+      return okResult({ status: "error", error: rec.error ?? rec.reason ?? "unknown error", resultRef, agentId: normalizedRecord.id, sessionFile: rec.sessionFile });
     },
   });
 }

@@ -3,6 +3,7 @@
 import type { DAGAdmissionDiagnostic, DAGNode, DAGSpec } from "./types";
 import type { Send } from "./send";
 import { normalizeWriteScope } from "./scope";
+import { normalizeResourceUri } from "./resource-lease";
 
 export const DEFAULT_MAX_DISPATCH_CHILDREN = 8;
 export const HARD_MAX_DISPATCH_CHILDREN = 20;
@@ -226,6 +227,10 @@ export function validateDAG(
     }
     for (const scope of node.write_scope ?? []) {
       try { normalizeWriteScope(scope); }
+      catch (error) { errors.push(`node '${id}' ${(error as Error).message}`); }
+    }
+    for (const resource of node.resource_scope ?? []) {
+      try { normalizeResourceUri(resource); }
       catch (error) { errors.push(`node '${id}' ${(error as Error).message}`); }
     }
     const maxChildren = node.dispatch?.maxChildren ?? DEFAULT_MAX_DISPATCH_CHILDREN;

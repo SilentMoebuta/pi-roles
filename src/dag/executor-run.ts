@@ -5,6 +5,7 @@ import type { DynamicNodeContext } from "./send";
 import { sendToTask, type Send } from "./send";
 import type { ExecutionCounters, SpawnFn, SpawnHandle } from "./executor-contract";
 import { mergePayloads, normalizePayload } from "./executor-payload";
+import { classifyDAGError, failedNodeResult, nodeErrorMessage } from "./error-taxonomy";
 import {
   DEFAULT_MAX_DISPATCH_CHILDREN,
   HARD_MAX_DISPATCH_CHILDREN,
@@ -71,10 +72,10 @@ async function spawnSends(sends: Send[], spawnFn: SpawnFn): Promise<SpawnHandle[
   )));
   return settled.map((result, index) => result.status === "fulfilled" ? result.value : {
     agentId: `failed-send-${index}`,
-    wait: async () => ({
-      status: "failed" as const,
-      error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-    }),
+    wait: async () => {
+      const errorInfo = classifyDAGError(result.reason);
+      return { status: "failed" as const, error: errorInfo.message, errorInfo };
+    },
   });
 }
 
@@ -90,7 +91,7 @@ async function runNodeWork(
     let task = appendSemanticContract(node.task, specNode.expected_output, specNode.consumers);
     for (const dep of node.deps) {
       const result = nodeResults.get(dep);
-      if (result?.status === "failed") task += errorContextPrefix(dep, result.error ?? "unknown");
+      if (result?.status === "failed") task += errorContextPrefix(dep, nodeErrorMessage(result));
     }
     const completedDeps: Record<string, NodePayload> = {};
     for (const dep of node.deps) {
@@ -114,7 +115,7 @@ async function runNodeWork(
         if (!result) continue;
         dependencies[dep] = result.status === "completed"
           ? { status: "completed", result: result.result }
-          : { status: "failed", error: result.error ?? result.status };
+          : { status: "failed", error: nodeErrorMessage(result) };
       }
       const sends = await node.dynamic({ nodeId: node.id, dependencies });
       const sendErrors = validateGeneratedSends(node.id, sends, hasSemanticContract(specNode), knownRoles);
@@ -141,20 +142,20 @@ async function runNodeWork(
 
     const settled = await Promise.allSettled(handles.map((handle) => handle.wait()));
     const payloads: NodePayload[] = [];
-    let error: string | undefined;
+    let errorInfo: ReturnType<typeof classifyDAGError> | undefined;
     for (const outcome of settled) {
       if (outcome.status === "fulfilled" && outcome.value.status === "completed") {
         payloads.push(normalizePayload(outcome.value));
       } else if (outcome.status === "fulfilled") {
-        error ??= outcome.value.error ?? outcome.value.status;
+        errorInfo ??= outcome.value.errorInfo ?? classifyDAGError(outcome.value.error ?? outcome.value.status, outcome.value.status);
       } else {
-        error ??= outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
+        errorInfo ??= classifyDAGError(outcome.reason);
       }
     }
-    if (error) return { nodeId: node.id, status: "failed", error };
-    return { nodeId: node.id, status: "completed", result: mergePayloads(payloads) };
+    if (errorInfo) return { nodeId: node.id, status: "failed", error: errorInfo.message, errorInfo };
+    return { nodeId: node.id, status: "completed", result: mergePayloads(payloads), attemptNumber: 1 };
   } catch (error) {
-    return { nodeId: node.id, status: "failed", error: error instanceof Error ? error.message : String(error) };
+    return failedNodeResult(node.id, error);
   }
 }
 
@@ -194,6 +195,6 @@ export async function runNode(
       cancel,
     );
   } catch (error) {
-    return { nodeId: node.id, status: "failed", error: error instanceof Error ? error.message : String(error) };
+    return failedNodeResult(node.id, error);
   }
 }

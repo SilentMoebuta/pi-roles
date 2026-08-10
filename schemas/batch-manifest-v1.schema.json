@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://silentmoebuta.github.io/pi-roles/schemas/batch-manifest-v1.schema.json",
+  "title": "PI Batch Manifest V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "tasks", "maxConcurrent"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "maxConcurrent": { "type": "integer", "minimum": 1 },
+    "tasks": { "type": "array", "items": { "$ref": "#/$defs/task" } }
+  },
+  "$defs": {
+    "task": { "type": "object", "additionalProperties": false, "required": ["id", "spec", "runId", "attemptId"], "properties": { "id": { "type": "string", "minLength": 1 }, "spec": {}, "runId": { "type": "string", "minLength": 1 }, "attemptId": { "type": "string", "minLength": 1 }, "resourceScopes": { "type": "array", "items": { "type": "string", "minLength": 1 } } } }
+  }
+}

@@ -16,8 +16,10 @@ import type {
   NodeResult,
   DAGResult,
   DAGSpec,
+  WorkflowLineage,
 } from "./types";
 import { isDeepStrictEqual } from "node:util";
+import { createHash } from "node:crypto";
 import { planWaves } from "./planner";
 import { executeDAGCore, mergePayloads, type ExecuteOptions, type SpawnFn } from "./executor";
 import { computeSkipReasonsFromResults } from "./route-skip";
@@ -37,12 +39,16 @@ export interface DAGCheckpointV1 {
 
 export interface DAGCheckpointNodeState extends DAGNodeState {
   result?: NodeResult["result"];
+  /** Full envelope for stable workflow/node lineage. Legacy checkpoints only
+   * carry result and are upgraded during resume. */
+  nodeResult?: NodeResult;
 }
 
 export type DAGCheckpointNodeMode = DAGNodeExecutionMode;
 
 export interface DAGCheckpointV2 {
   version: 2;
+  workflow?: WorkflowLineage;
   /** Original admitted graph, retained for audit and compatibility. */
   spec: DAGSpec;
   /** Runtime graph including scheduler-visible generated children. */
@@ -55,6 +61,12 @@ export interface DAGCheckpointV2 {
   skipReasons: Record<string, string>;
   generatedNodes: Record<string, GeneratedNodeRecord>;
   dispatchExpansions: Record<string, DispatchExpansionRecord>;
+  /** P1 durable runtime material; optional keeps V2 checkpoints decodable. */
+  artifactDigests?: DAGExecutionSnapshot["artifactDigests"];
+  approvals?: DAGExecutionSnapshot["approvals"];
+  sideEffectJournal?: DAGExecutionSnapshot["sideEffectJournal"];
+  /** SHA-256 over the checkpoint body; absent only on legacy V2 data. */
+  checkpointDigest?: string;
   /** Dynamic closures cannot survive JSON serialization. */
   unresolvedDynamicNodes?: string[];
 }
@@ -93,6 +105,12 @@ export function deserializeCheckpoint(json: string): DAGCheckpoint {
       throw new Error(`non-resumable V2 checkpoint: unresolved dynamic nodes ${v2.unresolvedDynamicNodes!.join(", ")}`);
     }
     validateV2Topology(v2);
+    // Preserve the existing structural diagnostics first; once topology and
+    // lineage are mechanically valid, the body digest detects content edits
+    // such as forged approvals or side-effect receipts.
+    if (v2.checkpointDigest !== undefined && v2.checkpointDigest !== checkpointDigest(v2)) {
+      throw new Error("malformed V2 checkpoint: checkpoint digest mismatch");
+    }
     return v2;
   }
   if ("version" in (cp as object)) {
@@ -121,10 +139,11 @@ function cloneDispatchExpansion(record: DispatchExpansionRecord): DispatchExpans
 export function makeCheckpointV2(spec: DAGSpec, snapshot: DAGExecutionSnapshot): DAGCheckpointV2 {
   const nodeStates: Record<string, DAGCheckpointNodeState> = {};
   for (const [id, state] of Object.entries(snapshot.nodeStates)) {
-    nodeStates[id] = { ...state, result: snapshot.nodeResults[id]?.result };
+    nodeStates[id] = { ...state, result: snapshot.nodeResults[id]?.result, nodeResult: snapshot.nodeResults[id] };
   }
-  return {
+  const checkpoint: DAGCheckpointV2 = {
     version: 2,
+    ...(snapshot.workflow ? { workflow: snapshot.workflow } : {}),
     spec,
     expandedSpec: snapshot.expandedSpec,
     scheduler: snapshot.scheduler,
@@ -142,6 +161,9 @@ export function makeCheckpointV2(spec: DAGSpec, snapshot: DAGExecutionSnapshot):
     skipReasons: { ...snapshot.skipReasons },
     generatedNodes: { ...snapshot.generatedNodes },
     dispatchExpansions: Object.fromEntries(Object.entries(snapshot.dispatchExpansions).map(([id, record]) => [id, cloneDispatchExpansion(record)])),
+    artifactDigests: structuredClone(snapshot.artifactDigests ?? {}),
+    approvals: structuredClone(snapshot.approvals ?? {}),
+    sideEffectJournal: structuredClone(snapshot.sideEffectJournal ?? {}),
     unresolvedDynamicNodes: Object.entries(snapshot.expandedSpec.nodes)
       .filter(([id, node]) => typeof node.dynamic === "function"
         && !snapshot.dispatchExpansions[id]
@@ -150,6 +172,13 @@ export function makeCheckpointV2(spec: DAGSpec, snapshot: DAGExecutionSnapshot):
         && snapshot.nodeStates[id]?.status !== "skipped")
       .map(([id]) => id),
   };
+  checkpoint.checkpointDigest = checkpointDigest(checkpoint);
+  return checkpoint;
+}
+
+function checkpointDigest(value: DAGCheckpointV2): string {
+  const { checkpointDigest: _ignored, ...body } = value;
+  return createHash("sha256").update(JSON.stringify(body)).digest("hex");
 }
 
 function validateV2Topology(checkpoint: DAGCheckpointV2): void {
@@ -360,7 +389,7 @@ function validateV2Topology(checkpoint: DAGCheckpointV2): void {
 export async function resumeDAG(
   checkpoint: DAGCheckpoint,
   spawnFn: SpawnFn,
-  opts: Pick<ExecuteOptions, "maxConcurrent" | "scheduler" | "knownRoles" | "onProgress" | "onCheckpoint" | "signal" | "now"> = {},
+  opts: Pick<ExecuteOptions, "maxConcurrent" | "scheduler" | "knownRoles" | "onProgress" | "onCheckpoint" | "signal" | "now" | "retryPolicy" | "onAttempt"> = {},
 ): Promise<DAGResult> {
   if ((checkpoint as DAGCheckpointV2).version === 2) {
     const cp = checkpoint as DAGCheckpointV2;
@@ -368,15 +397,18 @@ export async function resumeDAG(
     for (const [id, state] of Object.entries(cp.nodeStates)) {
       if (state.status === "completed" || state.status === "failed" || state.status === "skipped") {
         initialNodeResults.set(id, {
-          nodeId: id,
-          status: state.status,
-          result: state.result,
-          error: state.error,
+          ...(state.nodeResult ?? {
+            nodeId: id,
+            status: state.status,
+            result: state.result,
+            error: state.error,
+          }),
         });
       }
     }
     return executeDAGCore(cp.expandedSpec ?? cp.spec, spawnFn, {
       ...opts,
+      workflow: cp.workflow,
       scheduler: opts.scheduler ?? cp.scheduler,
       initialNodeResults,
       initialNodeStates: cp.nodeStates,
@@ -384,6 +416,7 @@ export async function resumeDAG(
       initialGeneratedNodes: cp.generatedNodes ?? {},
       initialDispatchExpansions: cp.dispatchExpansions ?? {},
       initialNodeModes: cp.nodeModes,
+      checkpointRuntime: { artifactDigests: cp.artifactDigests, approvals: cp.approvals, sideEffectJournal: cp.sideEffectJournal },
     });
   }
 

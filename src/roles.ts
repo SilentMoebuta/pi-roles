@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { parseReportSchema } from "./contract";
 
 export interface RoleDef {
   name: string;
@@ -48,6 +49,7 @@ export function parseRoleFrontmatter(file: string): RoleDef {
   const description = get("description") ?? "";
   const model = get("model");
   const thinkingLevel = get("thinkingLevel");
+  const outputSchema = parseReportSchema(fmObj["outputSchema"]);
   // P1-1: object-form tools → extract tool names + deny rules.
   // B4: fm 现在是对象(parseFrontmatter 返回)非字符串, object-form 先试 parseFrontmatter
   // 解析为对象, 不行则从 raw 原文提取 fallback。
@@ -79,7 +81,7 @@ export function parseRoleFrontmatter(file: string): RoleDef {
       }
     }
   }
-  const def: RoleDef = { name, description, prompt, tools, skills, maxTurns, canSpawn: false, teammates: [], model, thinkingLevel };
+  const def: RoleDef = { name, description, prompt, tools, skills, maxTurns, canSpawn: false, teammates: [], model, thinkingLevel, outputSchema };
   if (Object.keys(toolDenyRules).length > 0) def.toolDenyRules = toolDenyRules;
   if (disallowedTools.length > 0) def.disallowedTools = disallowedTools;
   return def;

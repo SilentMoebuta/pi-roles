@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://silentmoebuta.github.io/pi-roles/schemas/role-result-v1.schema.json",
+  "title": "PI Roles Result Envelope V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "resultId", "agentId", "role", "status", "digest", "payload", "error", "turnCount", "recordedAt"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "resultId": { "type": "string", "pattern": "^role-result:.+" },
+    "agentId": { "type": "string", "minLength": 1 },
+    "role": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["completed", "aborted", "error"] },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "payload": { "type": ["object", "null"] },
+    "error": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message", "retryable"],
+          "properties": {
+            "code": { "enum": ["provider_abort", "step_limit", "doom_loop", "liveness", "tool_timeout", "caller_abort", "schema_invalid", "worker_error", "unknown"] },
+            "message": { "type": "string", "minLength": 1 },
+            "retryable": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "turnCount": { "type": "integer", "minimum": 0 },
+    "recordedAt": { "type": "number", "minimum": 0 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "completed" } }, "required": ["status"] },
+      "then": { "properties": { "error": { "type": "null" }, "payload": { "type": "object" } } },
+      "else": { "properties": { "error": { "type": "object" } } }
+    }
+  ]
+}

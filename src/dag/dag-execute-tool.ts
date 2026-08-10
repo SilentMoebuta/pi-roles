@@ -32,6 +32,15 @@ import { DEFAULT_MAX_DISPATCH_CHILDREN, HARD_MAX_DISPATCH_CHILDREN } from "./val
 
 const Params = Type.Object({
   spec: Type.Object({
+    lineage: Type.Optional(Type.Object({
+      workflowId: Type.Optional(Type.String()),
+      goalDefinitionId: Type.Optional(Type.String()),
+      revisionId: Type.Optional(Type.String()),
+      runId: Type.Optional(Type.String()),
+      attemptId: Type.Optional(Type.String()),
+      parentWorkflowId: Type.Optional(Type.String()),
+      previousWorkflowId: Type.Optional(Type.String()),
+    }, { description: "Optional Goal Contract lineage. workflowId defaults to the stable dag_execute tool-call id." })),
     nodes: Type.Record(Type.String(), Type.Object({
       role: Type.Optional(Type.String({ description: "Role name (from role catalog). Mutually exclusive with roleDef. Optional — omit for a default subagent that inherits the full tool set with no persona/skill injection. Mixed DAGs (some nodes with role, some without, some with roleDef) are allowed." })),
       roleDef: Type.Optional(Type.Object({
@@ -56,6 +65,7 @@ const Params = Type.Object({
       timeout_ms: Type.Optional(Type.Number({ description: "Per-node timeout in milliseconds." })),
       priority: Type.Optional(Type.Number({ description: "Ready-scheduler priority. Higher values dispatch first." })),
       write_scope: Type.Optional(Type.Array(Type.String({ description: "Normalized repo-relative literal file/path or recursive directory scope ending in '/**'. Absolute paths, repository-escaping traversal, and other glob forms are rejected. Plain directory paths such as 'src' retain legacy recursive scope behavior." }))),
+      resource_scope: Type.Optional(Type.Array(Type.String({ description: "Hierarchical resource URI lease, for example file://repo/docs/**, worktree://repo/feature-a, or mailbox://ops/customer-42." }))),
       dispatch: Type.Optional(Type.Object({
         maxChildren: Type.Optional(Type.Number({ description: "Maximum generated children (default 8, hard max 20)." })),
       }, { description: "Bounded fan-out contract. With neither sends nor dynamic, this node is spawned as a dispatcher and must return a structured sends array." })),
@@ -217,7 +227,7 @@ export function makeDagExecuteTool(deps: DagExecuteDeps) {
     label: "Execute DAG",
     description: "Execute an admitted DAG of independent subagent work with semantic output/consumer contracts, adaptive ready-node scheduling (or legacy wave barriers), bounded runtime concurrency, partial-failure isolation, and explicit node state. Use direct/specialist execution when there is no real dependency, parallel work, branch, or responsibility boundary.",
     parameters: Params,
-    async execute(_toolCallId: string, params: { spec: DAGSpec; maxConcurrent?: number; scheduler?: "wave" | "ready" }, signal, onUpdate, _ctx) {
+    async execute(_toolCallId, params, signal, onUpdate, _ctx) {
       const spec = params.spec as DAGSpec;
       if (!spec.nodes || Object.keys(spec.nodes).length === 0) {
         return { content: [{ type: "text" as const, text: JSON.stringify({ status: "failed", reason: "empty DAG" }) }], details: { status: "failed", reason: "empty DAG" } };
@@ -246,6 +256,7 @@ export function makeDagExecuteTool(deps: DagExecuteDeps) {
 
       let latestCheckpoint: DAGCheckpointV2 | undefined;
       const result = await executeDAGCore(spec, spawnFn, {
+        workflow: { ...(spec.lineage ?? {}), workflowId: spec.lineage?.workflowId ?? `dag:${_toolCallId}` },
         maxConcurrent: params.maxConcurrent,
         scheduler: params.scheduler,
         knownRoles: deps.roleRegistry,

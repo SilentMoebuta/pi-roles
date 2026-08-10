@@ -73,6 +73,22 @@ describe("role definitions (roles/*.md)", () => {
     assert.ok(reviewer.prompt.includes("overall code health"), "reviewer must have continuous improvement philosophy");
   });
 
+  it("goal-reviewer exposes a typed decision/findings/artifacts contract", () => {
+    const reviewer = roles.get("goal-reviewer")!;
+    assert.ok(reviewer, "goal-reviewer missing");
+    assert.deepEqual(reviewer.outputSchema?.required, ["decision", "summary", "criterionCoverage", "findings", "artifacts"]);
+    assert.deepEqual(reviewer.outputSchema?.properties.decision.enum, ["accept", "revise", "blocked"]);
+    assert.deepEqual(reviewer.outputSchema?.properties.criterionCoverage.items?.properties?.status.enum, ["satisfied", "unsatisfied", "blocked"]);
+    assert.deepEqual(reviewer.outputSchema?.properties.findings.items?.properties?.severity.enum, ["critical", "major"]);
+    assert.equal(reviewer.outputSchema?.properties.findings.items?.type, "object");
+    assert.equal(reviewer.outputSchema?.properties.artifacts.items?.properties?.digest.type, "string");
+    assert.equal(reviewer.outputSchema?.properties.artifacts.items?.properties?.digest.pattern, "^[0-9a-f]{64}$");
+    assert.ok(!reviewer.prompt.includes("Ready"), "typed reviewer must not rely on Ready/Not ready literals");
+    assert.match(reviewer.prompt, /Never invent IDs/);
+    assert.match(reviewer.prompt, /submitted artifact URI verbatim/);
+    assert.match(reviewer.prompt, /Do not prefix the digest with `sha256:`/);
+  });
+
   it("coder has write/edit (implementation role)", () => {
     const coder = roles.get("coder")!;
     assert.ok(coder.tools.includes("write"), "coder can write");

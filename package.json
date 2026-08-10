@@ -7,6 +7,7 @@
     "pi",
     "pi-extension",
     "roles",
+    "schemas",
     "multi-agent",
     "subagent",
     "spawn-role",
@@ -36,7 +37,7 @@
     "typebox": "1.1.38"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.83.0",
+    "@earendil-works/pi-ai": "0.84.1",
     "@types/node": "^22.19.21",
     "tsx": "^4.0.0",
     "typebox": "1.1.38",
@@ -47,8 +48,8 @@
   },
   "type": "module",
   "peerDependencies": {
-    "@earendil-works/pi-ai": "^0.83.0",
-    "@earendil-works/pi-coding-agent": "^0.83.0",
-    "@earendil-works/pi-tui": "^0.83.0"
+    "@earendil-works/pi-ai": "^0.84.1",
+    "@earendil-works/pi-coding-agent": "^0.84.1",
+    "@earendil-works/pi-tui": "^0.84.1"
   }
 }

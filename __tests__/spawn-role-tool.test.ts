@@ -37,6 +37,7 @@ function deps(opts: {
   reportState?: ReportState;
   callerParentSession?: string;
   callerSessionFile?: string;
+  recordResult?: SpawnToolDeps["recordResult"];
 } = {}): { tool: any; deps: SpawnToolDeps; } {
   const roleRegistry = new Map<string, RoleDef>();
   (opts.roles ?? []).forEach(r => roleRegistry.set(r.name, r));
@@ -48,6 +49,7 @@ function deps(opts: {
     getCallerParentSession: () => opts.callerParentSession,
     getCallerSessionFile: () => opts.callerSessionFile,
     now: () => 1000,
+    recordResult: opts.recordResult,
   };
   return { tool: makeSpawnRoleTool(d), deps: d };
 }
@@ -88,6 +90,18 @@ describe("spawn_role tool", () => {
     assert.equal(f.calls[0].role, "reviewer");
     assert.equal(f.calls[0].task, "review X");
     assert.equal(f.calls[0].mode, undefined);
+  });
+
+  it("persists a typed role-result envelope and returns its immutable reference", async () => {
+    const recorded: any[] = [];
+    const f = fakeService({ id: "typed-1", status: "completed", result: "review summary", turnCount: 2 });
+    const { tool } = deps({ roles: [role("goal-reviewer")], svc: f.svc, recordResult: (result) => recorded.push(result) });
+    const out = await exec(tool, { role: "goal-reviewer", task: "review X" });
+    assert.equal(recorded.length, 1);
+    assert.equal(recorded[0].resultId, "role-result:typed-1");
+    assert.equal(recorded[0].role, "goal-reviewer");
+    assert.equal(out.details.resultRef.digest, recorded[0].digest);
+    assert.equal(out.details.sessionFile, undefined, "typed reference does not require a session file");
   });
 
   it("unknown role → {status:error, error}", async () => {

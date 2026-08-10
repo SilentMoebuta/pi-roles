@@ -23,6 +23,16 @@ import { registerRoleCommands } from "./src/role-commands";
 import { makeListRolesTool } from "./src/role-catalog";
 import { buildRolePersonaPrompt, parseActiveRoleFromBranch } from "./src/active-role";
 import { loadPresets, buildPresetInjection, makeSavePresetTool } from "./src/presets";
+import { PI_ROLES_RESULT_TYPE } from "./src/role-result";
+import { makeWorkflowExecuteTool } from "./src/dag/workflow-execute-tool";
+import { makeBatchExecuteTool } from "./src/dag/batch-execute-tool";
+
+export * from "./src/dag/batch-runtime";
+export * from "./src/dag/workflow-contract";
+export * from "./src/dag/resource-lease";
+export * from "./src/profile-layers";
+export * from "./src/dag/workflow-execute-tool";
+export * from "./src/dag/batch-execute-tool";
 // (agent-end-fallback module removed C5 — dead code, not wired; the child loads
 // its own extension instance so a same-process fallback was never reachable.)
 
@@ -90,11 +100,28 @@ export default async function (pi: ExtensionAPI): Promise<void> {
       try { pi.sendUserMessage(text, { deliverAs: "steer" }); }
       catch (e) { console.error("[pi-roles:notifyParent]", e); }
     },
+    recordResult: (result) => pi.appendEntry(PI_ROLES_RESULT_TYPE, result),
   }) as any);
 
   pi.registerTool(makeListRolesTool(roleRegistry) as any);
 
   pi.registerTool(makeDagExecuteTool({
+    roleRegistry,
+    service,
+    reportState,
+    cwd: dagCwd,
+    agentDir: dagAgentDir,
+  }) as any);
+
+  pi.registerTool(makeWorkflowExecuteTool({
+    roleRegistry,
+    service,
+    reportState,
+    cwd: dagCwd,
+    agentDir: dagAgentDir,
+  }) as any);
+
+  pi.registerTool(makeBatchExecuteTool({
     roleRegistry,
     service,
     reportState,
@@ -218,7 +245,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // 显式激活。第三次同型 bug (save_preset / 子session ext tools / dag_resume):
   // 改用显式列表, 以后加主 session 工具只改这一处, 不再散落 active.add()。
   // NOTE: report_role_result 是子 session 专用, 不在此列表。
-  const MAIN_SESSION_TOOLS = ["save_preset", "dag_resume", "list_roles"];
+  const MAIN_SESSION_TOOLS = ["save_preset", "dag_resume", "list_roles", "workflow_execute", "batch_execute"];
   pi.on("session_start", (_event, ctx) => {
     const sm = (ctx as any)?.sessionManager;
     let parentSession: string | undefined;

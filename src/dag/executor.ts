@@ -10,16 +10,20 @@ import type {
   GeneratedNodeRecord,
   NodePayload,
   NodeResult,
+  WorkflowLineage,
 } from "./types";
+import { createHash } from "node:crypto";
 import type { DynamicNodeContext, Send } from "./send";
 import { planWaves, type PlannedNode, type Wave } from "./planner";
 import type { ExecutionCounters, ExecuteOptions, SpawnFn } from "./executor-contract";
 import { buildResult, computeTopology } from "./executor-metrics";
 import { cloneDispatchExpansion, copyStates, isTerminal, mergePayloads } from "./executor-payload";
 import { declaredSendsLimit, runNode, waitForPromise } from "./executor-run";
+import { failedNodeResult, nodeErrorMessage } from "./error-taxonomy";
 import { validateDAG, validateGeneratedSends } from "./validate";
 import { expandDispatchNode, generatedNodeId } from "./expansion";
-import { normalizeWriteScope, WriteScopeLeases } from "./scope";
+import { normalizeWriteScope } from "./scope";
+import { normalizeResourceUri, ResourceLeases } from "./resource-lease";
 
 export type { ExecuteOptions, SpawnFn, SpawnHandle, SpawnOutcomeStatus } from "./executor-contract";
 export { mergePayloads } from "./executor-payload";
@@ -29,6 +33,7 @@ export const HARD_MAX_CONCURRENT = 20;
 export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts: ExecuteOptions = {}): Promise<DAGResult> {
   const now = opts.now ?? Date.now;
   const startedAt = now();
+  const workflow = normalizeWorkflowLineage(inputSpec, opts.workflow, startedAt);
   const validation = validateDAG(inputSpec, opts.knownRoles, {
     expandedDispatches: new Set(Object.keys(opts.initialDispatchExpansions ?? {})),
   });
@@ -63,7 +68,14 @@ export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts:
     plannedById = new Map(waves.flatMap((wave) => wave.nodes.map((node) => [node.id, node] as const)));
     specOrder = new Map(Object.keys(spec.nodes).map((id, index) => [id, index]));
     ({ waveByNode, remainingCriticalPath } = computeTopology(waves));
-    scopes = new Map(Object.entries(spec.nodes).map(([id, node]) => [id, (node.write_scope ?? []).map(normalizeWriteScope)]));
+    scopes = new Map(Object.entries(spec.nodes).map(([id, node]) => {
+      const fileResources = (node.write_scope ?? []).map((scope) => {
+        const normalized = normalizeWriteScope(scope);
+        return `file://repo${normalized === "." ? "" : "/" + normalized}/**`;
+      });
+      const resources = (node.resource_scope ?? []).map((resource) => normalizeResourceUri(resource).value);
+      return [id, [...fileResources, ...resources]];
+    }));
   };
   rebuildTopology();
 
@@ -90,14 +102,37 @@ export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts:
     ? Math.max(1, Math.min(HARD_MAX_CONCURRENT, Math.floor(requestedConcurrency)))
     : DEFAULT_MAX_CONCURRENT;
   const nodeResults = new Map<string, NodeResult>();
+  const withNodeLineage = (id: string, result: NodeResult): NodeResult => {
+    if (result.resultId && result.lineage?.workflowId === workflow.workflowId) return result;
+    const previous = nodeResults.get(id);
+    const attemptNumber = result.attemptNumber ?? 1;
+    const baseResultId = `${workflow.workflowId}:node:${encodeURIComponent(id)}:result`;
+    const resultId = attemptNumber === 1 ? baseResultId : `${baseResultId}:attempt:${attemptNumber}`;
+    return {
+      ...result,
+      resultId,
+      lineage: {
+        ...workflow,
+        nodeId: id,
+        parentNodeId: generatedNodes[id]?.parentId ?? null,
+        previousResultId: previous?.resultId ?? null,
+        attemptNumber,
+      },
+    };
+  };
+  const storeNodeResult = (id: string, result: NodeResult): NodeResult => {
+    const normalized = withNodeLineage(id, result);
+    nodeResults.set(id, normalized);
+    return normalized;
+  };
   for (const [id, result] of opts.initialNodeResults ?? []) {
     if (!knownIds.has(id)) throw new Error(`initial result references unknown node '${id}'`);
-    nodeResults.set(id, result);
+    storeNodeResult(id, result);
   }
   for (const wave of opts.priorWaveResults ?? []) {
     for (const result of [...wave.successes, ...wave.failures, ...(wave.skipped ?? [])]) {
       if (!knownIds.has(result.nodeId)) throw new Error(`prior wave result references unknown node '${result.nodeId}'`);
-      if (!nodeResults.has(result.nodeId)) nodeResults.set(result.nodeId, result);
+      if (!nodeResults.has(result.nodeId)) storeNodeResult(result.nodeId, result);
     }
   }
   const states: Record<string, DAGNodeState> = Object.fromEntries(Object.keys(spec.nodes).map((id) => [id, { status: "queued" as const }]));
@@ -110,6 +145,8 @@ export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts:
       ...states[id],
       status: result.status,
       error: result.error,
+      errorInfo: result.errorInfo,
+      attemptNumber: result.attemptNumber,
       route: typeof result.result?.route === "string" ? result.result.route : undefined,
     };
   }
@@ -119,7 +156,7 @@ export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts:
 
   const skipReasons = new Map<string, string>(opts.initialSkipReasons ?? []);
   for (const id of skipReasons.keys()) if (!knownIds.has(id)) throw new Error(`skip reason references unknown node '${id}'`);
-  const leases = new WriteScopeLeases();
+  const leases = new ResourceLeases();
   const running = new Map<string, Promise<void>>();
   let peakConcurrent = 0;
   const counters: ExecutionCounters = { routeCount: 0, dispatchCount: 0, downstreamResultConsumptionCount: 0 };
@@ -135,7 +172,7 @@ export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts:
     const nodes: DAGProgress["nodes"] = {};
     for (const [id, state] of Object.entries(states)) nodes[id] = { status: state.status, error: state.error, route: state.route };
     opts.onProgress?.({
-      dagId: "",
+      dagId: workflow.workflowId,
       currentWave: currentWave(),
       totalWaves: waves.length,
       scheduler,
@@ -149,6 +186,7 @@ export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts:
   };
   const emitCheckpoint = () => {
     opts.onCheckpoint?.({
+      workflow,
       scheduler,
       expandedSpec: spec,
       nodeModes: { ...nodeModes },
@@ -157,7 +195,38 @@ export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts:
       skipReasons: Object.fromEntries(skipReasons),
       generatedNodes: { ...generatedNodes },
       dispatchExpansions: Object.fromEntries(Object.entries(dispatchExpansions).map(([id, record]) => [id, cloneDispatchExpansion(record)])),
+      artifactDigests: structuredClone(opts.checkpointRuntime?.artifactDigests ?? {}),
+      approvals: structuredClone(opts.checkpointRuntime?.approvals ?? {}),
+      sideEffectJournal: structuredClone(opts.checkpointRuntime?.sideEffectJournal ?? {}),
     });
+  };
+
+  const retryPolicy = {
+    maxAttempts: Math.max(1, Math.floor(opts.retryPolicy?.maxAttempts ?? 1)),
+    baseDelayMs: Math.max(0, Math.floor(opts.retryPolicy?.baseDelayMs ?? 10_000)),
+    maxDelayMs: Math.max(0, Math.floor(opts.retryPolicy?.maxDelayMs ?? 120_000)),
+  };
+  const runNodeWithRetry = async (planned: PlannedNode, node: DAGNode): Promise<NodeResult> => {
+    for (let attemptNumber = 1; attemptNumber <= retryPolicy.maxAttempts; attemptNumber++) {
+      opts.onAttempt?.({ nodeId: planned.id, attemptNumber, status: "started" });
+      const raw = await runNode(planned, node, spawnFn, nodeResults, opts.signal, opts.knownRoles, counters);
+      const result = { ...raw, attemptNumber };
+      if (result.status === "completed") {
+        opts.onAttempt?.({ nodeId: planned.id, attemptNumber, status: "completed" });
+        return result;
+      }
+      const errorInfo = result.errorInfo ?? failedNodeResult(planned.id, result.error ?? result.status).errorInfo!;
+      const normalized = { ...result, error: errorInfo.message, errorInfo };
+      if (!errorInfo.retryable || attemptNumber >= retryPolicy.maxAttempts || opts.signal?.aborted) {
+        opts.onAttempt?.({ nodeId: planned.id, attemptNumber, status: "failed", error: errorInfo });
+        return normalized;
+      }
+      const delayMs = Math.min(retryPolicy.maxDelayMs, retryPolicy.baseDelayMs * (2 ** Math.max(0, attemptNumber - 1)));
+      opts.onAttempt?.({ nodeId: planned.id, attemptNumber, status: "retrying", error: errorInfo, delayMs });
+      if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+      if (opts.signal?.aborted) return failedNodeResult(planned.id, "aborted", { status: "aborted", attemptNumber });
+    }
+    return failedNodeResult(planned.id, "retry policy exhausted");
   };
 
   const applyRoute = (id: string, result: NodeResult): NodeResult => {
@@ -168,12 +237,12 @@ export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts:
     const allTargets = new Set(Object.values(routes).flat());
     if (typeof route !== "string" || route.length === 0) {
       for (const target of allTargets) if (!nodeResults.has(target)) skipReasons.set(target, `routing node '${id}' failed: missing route`);
-      return { nodeId: id, status: "failed", error: "missing route in node result" };
+      return failedNodeResult(id, "missing route in node result");
     }
     const selected = routes[route];
     if (!selected) {
       for (const target of allTargets) if (!nodeResults.has(target)) skipReasons.set(target, `routing node '${id}' failed: unknown route '${route}'`);
-      return { nodeId: id, status: "failed", error: `unknown route '${route}'` };
+      return failedNodeResult(id, `unknown route '${route}'`);
     }
     const selectedSet = new Set(selected);
     for (const target of allTargets) {
@@ -187,7 +256,7 @@ export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts:
     for (const [id, reason] of skipReasons) {
       if (states[id]?.status !== "queued") continue;
       const result: NodeResult = { nodeId: id, status: "skipped", error: reason };
-      nodeResults.set(id, result);
+      storeNodeResult(id, result);
       states[id] = { ...states[id], status: "skipped", error: reason, finishedAt: now() };
       changed = true;
       emitCheckpoint();
@@ -214,7 +283,7 @@ export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts:
       } else {
         const childPayloads = expansion.generatedNodeIds.map((id) => nodeResults.get(id)?.result).filter((payload): payload is NodePayload => Boolean(payload));
         if (childPayloads.length !== expansion.generatedNodeIds.length) {
-          result = { nodeId: parentId, status: "failed", error: "generated child completed without a persisted result" };
+          result = failedNodeResult(parentId, "generated child completed without a persisted result");
         } else {
           const payloads = expansion.dispatcherResult
             ? [expansion.dispatcherResult, ...childPayloads]
@@ -223,11 +292,13 @@ export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts:
           result = { nodeId: parentId, status: "completed", result: mergePayloads(payloads) };
         }
       }
-      nodeResults.set(parentId, result);
+      storeNodeResult(parentId, result);
       states[parentId] = {
         ...states[parentId],
         status: result.status,
         error: result.error,
+        errorInfo: result.errorInfo,
+        attemptNumber: result.attemptNumber,
         startedAt: states[parentId].startedAt ?? settledAt,
         finishedAt: states[parentId].finishedAt ?? settledAt,
       };
@@ -247,9 +318,9 @@ export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts:
     if (!node.dynamic) {
       const planned = plannedById.get(id);
       if (!planned) throw new Error(`result dispatcher '${id}' is missing from the execution plan`);
-      const result = await runNode(planned, node, spawnFn, nodeResults, opts.signal, opts.knownRoles, counters);
+      const result = await runNodeWithRetry(planned, node);
       if (result.status !== "completed" || !result.result) {
-        throw new Error(result.error ?? `result dispatcher '${id}' did not complete`);
+        throw new Error(nodeErrorMessage(result) || `result dispatcher '${id}' did not complete`);
       }
       const sends = result.result.sends;
       if (!Array.isArray(sends)) {
@@ -263,7 +334,7 @@ export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts:
       if (!result) continue;
       dependencies[dep] = result.status === "completed"
         ? { status: "completed", result: result.result }
-        : { status: "failed", error: result.error ?? result.status };
+        : { status: "failed", error: nodeErrorMessage(result) };
     }
     return {
       sends: await waitForPromise(node.dynamic({ nodeId: id, dependencies }), node.timeout_ms, opts.signal),
@@ -305,9 +376,9 @@ export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts:
       emitCheckpoint();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const result: NodeResult = { nodeId: id, status: "failed", error: message };
-      nodeResults.set(id, result);
-      states[id] = { ...states[id], status: "failed", error: message, finishedAt: now() };
+      const result = failedNodeResult(id, error);
+      storeNodeResult(id, result);
+      states[id] = { ...states[id], status: "failed", error: result.error, errorInfo: result.errorInfo, attemptNumber: result.attemptNumber, finishedAt: now() };
       emitCheckpoint();
     }
   };
@@ -333,20 +404,22 @@ export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts:
     if (!leases.acquire(id, nodeScopes)) return false;
     states[id] = { ...states[id], status: "running", startedAt: now() };
     const promise = (async () => {
-      let result = await runNode(planned, spec.nodes[id], spawnFn, nodeResults, opts.signal, opts.knownRoles, counters);
+      let result = await runNodeWithRetry(planned, spec.nodes[id]);
       result = applyRoute(id, result);
-      nodeResults.set(id, result);
+      result = storeNodeResult(id, result);
       states[id] = {
         ...states[id],
         status: result.status,
         error: result.error,
+        errorInfo: result.errorInfo,
+        attemptNumber: result.attemptNumber,
         route: typeof result.result?.route === "string" ? result.result.route : undefined,
         finishedAt: now(),
       };
     })().catch((error) => {
-      const result: NodeResult = { nodeId: id, status: "failed", error: error instanceof Error ? error.message : String(error) };
-      nodeResults.set(id, result);
-      states[id] = { ...states[id], status: "failed", error: result.error, finishedAt: now() };
+      const result = failedNodeResult(id, error);
+      storeNodeResult(id, result);
+      states[id] = { ...states[id], status: "failed", error: result.error, errorInfo: result.errorInfo, attemptNumber: result.attemptNumber, finishedAt: now() };
     }).finally(() => {
       leases.release(id);
       running.delete(id);
@@ -424,6 +497,7 @@ export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts:
     finishedAt,
     counters,
     validation.diagnostics,
+    workflow,
   );
   emitProgress(result);
   return result;
@@ -432,4 +506,30 @@ export async function executeDAGCore(inputSpec: DAGSpec, spawnFn: SpawnFn, opts:
 /** Execute a full DAG using the default ready scheduler. */
 export async function executeDAG(spec: DAGSpec, spawnFn: SpawnFn): Promise<DAGResult> {
   return executeDAGCore(spec, spawnFn);
+}
+
+function normalizeWorkflowLineage(
+  spec: DAGSpec,
+  supplied: Partial<WorkflowLineage> | undefined,
+  startedAt: number,
+): WorkflowLineage {
+  const source = { ...(spec.lineage ?? {}), ...(supplied ?? {}) };
+  const structuralDigest = createHash("sha256").update(JSON.stringify(spec.nodes)).digest("hex").slice(0, 16);
+  return {
+    workflowId: nonEmpty(source.workflowId) ?? `dag:${structuralDigest}:${startedAt}`,
+    goalDefinitionId: nullableIdentity(source.goalDefinitionId),
+    revisionId: nullableIdentity(source.revisionId),
+    runId: nullableIdentity(source.runId),
+    attemptId: nullableIdentity(source.attemptId),
+    parentWorkflowId: nullableIdentity(source.parentWorkflowId),
+    previousWorkflowId: nullableIdentity(source.previousWorkflowId),
+  };
+}
+
+function nonEmpty(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function nullableIdentity(value: unknown): string | null {
+  return nonEmpty(value) ?? null;
 }

@@ -26,6 +26,15 @@ describe("contract", () => {
     assert.equal(r.ok, false);
     assert.match(r.error!, /findings/);
   });
+  it("enforces a declared string pattern", () => {
+    const digestSchema: ReportSchema = {
+      type: "object",
+      required: ["digest"],
+      properties: { digest: { type: "string", pattern: "^[0-9a-f]{64}$" } },
+    };
+    assert.equal(validateReport({ digest: "a".repeat(64) }, digestSchema).ok, true);
+    assert.equal(validateReport({ digest: `sha256:${"a".repeat(64)}` }, digestSchema).ok, false);
+  });
   it("buildStructuredError returns required shape", () => {
     const e = buildStructuredError({ failedStep: "pm-analyze", errorType: "schema_mismatch", message: "findings missing" });
     assert.equal(e.errorType, "schema_mismatch");

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://silentmoebuta.github.io/pi-roles/schemas/workflow-contract-v1.schema.json",
+  "title": "PI Workflow Contract V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "kind", "tasks"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "kind": { "enum": ["direct", "sequential", "parallel", "conditional", "loop", "map_reduce", "handoff", "dag"] },
+    "tasks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/task" } },
+    "condition": { "type": "object", "additionalProperties": false, "required": ["routerId", "routes"], "properties": { "routerId": { "$ref": "#/$defs/id" }, "routes": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "array", "items": { "$ref": "#/$defs/id" } } } } },
+    "loop": { "type": "object", "additionalProperties": false, "required": ["maxIterations", "until"], "properties": { "maxIterations": { "type": "integer", "minimum": 1, "maximum": 100 }, "until": { "type": "string", "minLength": 1 } } },
+    "mapReduce": { "type": "object", "additionalProperties": false, "required": ["items", "mapTask", "reduceTaskId"], "properties": { "items": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["key", "input"], "properties": { "key": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" }, "input": { "type": "string" } } } }, "mapRole": { "type": "string" }, "mapTask": { "type": "string", "minLength": 1 }, "reduceTaskId": { "$ref": "#/$defs/id" } } },
+    "metadata": { "type": "object" }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1 },
+    "task": { "type": "object", "additionalProperties": false, "required": ["id", "task"], "properties": { "id": { "$ref": "#/$defs/id" }, "task": { "type": "string", "minLength": 1 }, "role": { "type": "string", "minLength": 1 }, "dependsOn": { "type": "array", "items": { "$ref": "#/$defs/id" } }, "expectedOutput": { "type": "string", "minLength": 1 }, "resourceScope": { "type": "array", "items": { "type": "string", "minLength": 1 } } } }
+  }
+}

@@ -90,6 +90,9 @@ describe("role loading smoke test", () => {
 
       it("every declared skill resolves to a SKILL.md on disk", () => {
         const roleSkillsDir = path.join(ROLES_DIR, `${role.name}-skills`);
+        if (role.skills.length === 0) {
+          return;
+        }
         assert.ok(
           fs.existsSync(roleSkillsDir) && fs.statSync(roleSkillsDir).isDirectory(),
           `skills dir missing: roles/${role.name}-skills/`,
@@ -107,9 +110,12 @@ describe("role loading smoke test", () => {
 
   it("discoverRoleSkillDirs finds all *-skills directories (incl report-writer-skills)", () => {
     const dirs = discoverRoleSkillDirs(ROLES_DIR).sort();
-    // Expected = one skills dir per role file with the same basename.
+    // Roles may intentionally declare an empty skills list and legacy roles may
+    // retain an empty companion directory. Discovery must reflect the actual
+    // role-owned directories, not invent a directory for every role.
     const expected = roleFiles
       .map((f) => `${path.basename(f, ".md")}-skills`)
+      .filter((dir) => fs.existsSync(path.join(ROLES_DIR, dir)))
       .sort();
     assert.deepEqual(dirs, expected, "discovered skills dirs != one per role file");
     assert.ok(dirs.includes("report-writer-skills"), "report-writer-skills not discovered");
