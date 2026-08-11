@@ -29,6 +29,13 @@ import { resolveDispatchContract } from "./dispatch-contract";
 import { makeRoleSkillsOverride } from "../subagent/skills-override";
 import type { SpawnToolService } from "../subagent/spawn-role-tool";
 import { DEFAULT_MAX_DISPATCH_CHILDREN, HARD_MAX_DISPATCH_CHILDREN } from "./validate";
+import type { DAGAttemptEvent } from "./executor-contract";
+
+export const DAGRetryPolicyParams = Type.Object({
+  maxAttempts: Type.Integer({ minimum: 1, maximum: 100, description: "Total attempts for retryable infrastructure failures. Omit retryPolicy to preserve the historical one-attempt behavior." }),
+  baseDelayMs: Type.Integer({ minimum: 0, maximum: 3_600_000, description: "Delay before the first retry." }),
+  maxDelayMs: Type.Integer({ minimum: 0, maximum: 3_600_000, description: "Maximum exponential retry delay." }),
+});
 
 const Params = Type.Object({
   spec: Type.Object({
@@ -84,6 +91,7 @@ const Params = Type.Object({
   }),
   maxConcurrent: Type.Optional(Type.Number({ description: "Maximum DAG nodes running at once (default 5)." })),
   scheduler: Type.Optional(Type.Union([Type.Literal("wave"), Type.Literal("ready")], { description: "ready (default) unlocks downstream nodes as soon as their own dependencies settle; wave preserves legacy barriers." })),
+  retryPolicy: Type.Optional(DAGRetryPolicyParams),
 });
 
 export interface DagExecuteDeps {
@@ -255,6 +263,7 @@ export function makeDagExecuteTool(deps: DagExecuteDeps) {
       }
 
       let latestCheckpoint: DAGCheckpointV2 | undefined;
+      const attempts: DAGAttemptEvent[] = [];
       const result = await executeDAGCore(spec, spawnFn, {
         workflow: { ...(spec.lineage ?? {}), workflowId: spec.lineage?.workflowId ?? `dag:${_toolCallId}` },
         maxConcurrent: params.maxConcurrent,
@@ -262,11 +271,13 @@ export function makeDagExecuteTool(deps: DagExecuteDeps) {
         knownRoles: deps.roleRegistry,
         onProgress,
         signal,
+        retryPolicy: params.retryPolicy,
+        onAttempt: (event) => attempts.push(structuredClone(event)),
         onCheckpoint: (snapshot) => { latestCheckpoint = makeCheckpointV2(spec, snapshot); },
       });
       const details = latestCheckpoint
-        ? { ...result, checkpoint: serializeCheckpoint(latestCheckpoint) }
-        : result;
+        ? { ...result, attempts, checkpoint: serializeCheckpoint(latestCheckpoint) }
+        : { ...result, attempts };
       return { content: [{ type: "text" as const, text: JSON.stringify(details) }], details };
     },
   });

@@ -9,15 +9,16 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { deserializeCheckpoint, makeCheckpointV2, resumeDAG, serializeCheckpoint, type DAGCheckpointV2 } from "./checkpoint";
-import type { DagExecuteDeps } from "./dag-execute-tool";
-import { buildSpawnFn } from "./dag-execute-tool";
+import { buildSpawnFn, DAGRetryPolicyParams, type DagExecuteDeps } from "./dag-execute-tool";
 import { makeOnProgress } from "./progress";
 import { validateDAG } from "./validate";
+import type { DAGAttemptEvent, DAGRetryPolicy } from "./executor-contract";
 
 const Params = Type.Object({
   checkpoint: Type.String({ description: "Serialized DAG checkpoint (JSON from serializeCheckpoint)." }),
   maxConcurrent: Type.Optional(Type.Number({ description: "Maximum DAG nodes running at once (default 5)." })),
   scheduler: Type.Optional(Type.Union([Type.Literal("wave"), Type.Literal("ready")], { description: "Optional override. Without it, V2 uses its checkpoint scheduler and V1 defaults to ready." })),
+  retryPolicy: Type.Optional(DAGRetryPolicyParams),
 });
 
 export function makeDagResumeTool(deps: DagExecuteDeps) {
@@ -26,7 +27,7 @@ export function makeDagResumeTool(deps: DagExecuteDeps) {
     label: "Resume DAG",
     description: "Resume a DAG from a V1 wave checkpoint or V2 explicit-node checkpoint without replaying completed work.",
     parameters: Params,
-    async execute(_toolCallId: string, params: { checkpoint: string; maxConcurrent?: number; scheduler?: "wave" | "ready" }, signal, onUpdate, _ctx) {
+    async execute(_toolCallId: string, params: { checkpoint: string; maxConcurrent?: number; scheduler?: "wave" | "ready"; retryPolicy?: Partial<DAGRetryPolicy> }, signal, onUpdate, _ctx) {
       const cp = deserializeCheckpoint(params.checkpoint);
       const resumeSpec = "version" in cp && cp.version === 2 ? cp.expandedSpec : cp.spec;
       const validation = validateDAG(resumeSpec, deps.roleRegistry, {
@@ -49,17 +50,20 @@ export function makeDagResumeTool(deps: DagExecuteDeps) {
       });
       const onProgress = onUpdate ? makeOnProgress(resumeSpec, onUpdate) : undefined;
       let latestCheckpoint: DAGCheckpointV2 | undefined;
+      const attempts: DAGAttemptEvent[] = [];
       const result = await resumeDAG(cp, spawnFn, {
         maxConcurrent: params.maxConcurrent,
         scheduler: params.scheduler,
         knownRoles: deps.roleRegistry,
         signal,
         onProgress,
+        retryPolicy: params.retryPolicy,
+        onAttempt: (event) => attempts.push(structuredClone(event)),
         onCheckpoint: (snapshot) => { latestCheckpoint = makeCheckpointV2(cp.spec, snapshot); },
       });
       const details = latestCheckpoint
-        ? { ...result, checkpoint: serializeCheckpoint(latestCheckpoint) }
-        : result;
+        ? { ...result, attempts, checkpoint: serializeCheckpoint(latestCheckpoint) }
+        : { ...result, attempts };
       return { content: [{ type: "text" as const, text: JSON.stringify(details) }], details };
     },
   });
