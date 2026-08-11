@@ -102,7 +102,11 @@ roles/
 
 Run `npm test` and `npm run typecheck`. Published V1 schemas for workflow,
 batch manifest/result, profile layers, role results, and reviewer payloads live
-under `schemas/`.
+under `schemas/` and are included in the npm package. Integrations that consume
+durable role results should import the canonical constants, types, and parser
+from the `pi-roles/role-result` package subpath; schema resources are exported
+from `pi-roles/schemas/*`. `pi-roles` remains the protocol owner and does not
+depend on its consumers.
 
 Preset semantic review uses an ad-hoc read-only reviewer with a typed
 `verdict/summary/findings/artifacts` output contract. The `save_preset` path

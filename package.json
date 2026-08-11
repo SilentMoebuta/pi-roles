@@ -19,10 +19,16 @@
     "index.ts",
     "src",
     "roles",
+    "schemas",
     "__tests__",
     "README.md",
     "LICENSE"
   ],
+  "exports": {
+    ".": "./index.ts",
+    "./role-result": "./src/role-result.ts",
+    "./schemas/*": "./schemas/*"
+  },
   "pi": {
     "extensions": [
       "./"

@@ -3,18 +3,15 @@ import type { ReportPayload } from "./contract";
 
 export const PI_ROLES_RESULT_TYPE = "pi-roles:role-result";
 export const ROLE_RESULT_SCHEMA_VERSION = 1 as const;
+export const ROLE_RESULT_SCHEMA_ID = "https://silentmoebuta.github.io/pi-roles/schemas/role-result-v1.schema.json";
+export const ROLE_RESULT_STATUSES = ["completed", "aborted", "error"] as const;
+export const ROLE_ERROR_CODES = [
+  "provider_abort", "step_limit", "doom_loop", "liveness", "tool_timeout", "caller_abort",
+  "schema_invalid", "worker_error", "unknown",
+] as const;
 
-export type RoleResultStatus = "completed" | "aborted" | "error";
-export type RoleErrorCode =
-  | "provider_abort"
-  | "step_limit"
-  | "doom_loop"
-  | "liveness"
-  | "tool_timeout"
-  | "caller_abort"
-  | "schema_invalid"
-  | "worker_error"
-  | "unknown";
+export type RoleResultStatus = typeof ROLE_RESULT_STATUSES[number];
+export type RoleErrorCode = typeof ROLE_ERROR_CODES[number];
 
 export interface RoleExecutionError {
   code: RoleErrorCode;
@@ -144,20 +141,15 @@ function roleError(reason: string | undefined, message: string | undefined): Rol
 
 function parseRoleError(value: unknown): RoleExecutionError {
   const object = asRecord(value, "error");
-  const codes: RoleErrorCode[] = [
-    "provider_abort", "step_limit", "doom_loop", "liveness", "tool_timeout", "caller_abort",
-    "schema_invalid", "worker_error", "unknown",
-  ];
   const code = requiredString(object.code, "error.code") as RoleErrorCode;
-  if (!codes.includes(code)) throw new Error("unknown role error code");
+  if (!ROLE_ERROR_CODES.includes(code)) throw new Error("unknown role error code");
   if (typeof object.retryable !== "boolean") throw new Error("error.retryable must be boolean");
   return { code, message: requiredString(object.message, "error.message"), retryable: object.retryable };
 }
 
 function normalizeStatus(value: string): RoleResultStatus {
-  if (value === "completed") return "completed";
-  if (value === "aborted") return "aborted";
-  if (value === "error" || value === "failed") return "error";
+  if (ROLE_RESULT_STATUSES.includes(value as RoleResultStatus)) return value as RoleResultStatus;
+  if (value === "failed") return "error";
   throw new Error(`unsupported role result status: ${value}`);
 }
 
