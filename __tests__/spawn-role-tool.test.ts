@@ -79,6 +79,14 @@ describe("spawn_role tool", () => {
     assert.ok(!tool.parameters.required || tool.parameters.required.length === 0, "all fields optional");
   });
 
+  it("mode schema documents the supported background-and-join contract", () => {
+    const { tool } = deps({ roles: [role("reviewer")] });
+    const description = tool.parameters.properties.mode.description;
+    assert.match(description, /background returns an agentId immediately/);
+    assert.match(description, /joined later with agentId/);
+    assert.doesNotMatch(description, /not yet supported/);
+  });
+
   it("foreground (default mode): spawns, awaits, returns {status:completed, result, agentId}", async () => {
     const f = fakeService({ id: "r1", status: "completed", result: "review summary", turnCount: 2 });
     const { tool } = deps({ roles: [role("reviewer")], svc: f.svc });

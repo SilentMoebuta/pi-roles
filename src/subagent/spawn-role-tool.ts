@@ -1,7 +1,8 @@
 // spawn_role tool — the main agent's entry to spawn a role-scoped subagent.
 //
 // Returns a foreground/background-compatible shape {status, result|error, agentId?}.
-// Phase 1: foreground only (await waitForResult); background is Phase 5.
+// Foreground waits for completion; background returns an agentId immediately and
+// can be joined later through the same tool's agentId parameter.
 //
 // Permission reads the CALLER role's canSpawn field — NOT hardcoded isMainAgent.
 // Main agent (no parentSession) may spawn; a role subagent may spawn only if its
@@ -194,7 +195,7 @@ const Params = Type.Object({
   mode: Type.Optional(Type.Union([
     Type.Literal("foreground"),
     Type.Literal("background"),
-  ], { description: "foreground (default) blocks until the role finishes; background returns immediately (Phase 5, not yet supported)." })),
+  ], { description: "foreground (default) blocks until the role finishes; background returns an agentId immediately and can be joined later with agentId." })),
   model: Type.Optional(Type.String({ description: "Override the role's default model. Use provider/modelId (e.g. 'testprov/test-model') or bare id (e.g. 'deepseek-v4-flash'). If omitted, the role's preset model is used." })),
   maxTurns: Type.Optional(Type.Number({ description: "Override the role's maxTurns (turn budget). Useful for deep research (9999) vs quick lookup (30). If omitted, the role's preset maxTurns is used." })),
   thinkingLevel: Type.Optional(Type.String({ description: "Override the role's thinking level (e.g. 'low', 'medium', 'high', 'xhigh'). If omitted, the role's preset thinkingLevel is used." })),
