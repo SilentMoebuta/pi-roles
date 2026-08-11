@@ -27,6 +27,7 @@
   "exports": {
     ".": "./index.ts",
     "./role-result": "./src/role-result.ts",
+    "./goal-reviewer-payload": "./src/goal-reviewer-payload.ts",
     "./schemas/*": "./schemas/*"
   },
   "pi": {

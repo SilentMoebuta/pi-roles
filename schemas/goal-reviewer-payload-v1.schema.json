@@ -26,7 +26,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "code", "severity", "subjectId", "reason", "evidenceRefs", "missingEvidenceKind"],
+        "required": ["id", "code", "severity", "subjectId", "reason", "evidenceRefs"],
         "properties": {
           "id": { "type": "string", "minLength": 1 },
           "code": { "type": "string", "minLength": 1 },
@@ -46,11 +46,11 @@
         "required": ["uri", "digest", "sizeBytes"],
         "properties": {
           "uri": { "type": "string", "minLength": 1 },
-          "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "digest": { "type": "string", "pattern": "^(sha256:)?[0-9a-f]{64}$" },
           "sizeBytes": { "type": "integer", "minimum": 0 }
         }
       }
     },
-    "advisories": { "type": "array", "items": { "type": "string" } }
+    "advisories": { "type": "array", "items": { "type": "string", "minLength": 1 } }
   }
 }

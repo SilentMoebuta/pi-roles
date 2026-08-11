@@ -10,6 +10,7 @@ import {
   ROLE_RESULT_SCHEMA_ID,
   ROLE_RESULT_STATUSES,
 } from "../src/role-result";
+import { GOAL_REVIEWER_PAYLOAD_SCHEMA_ID } from "../src/goal-reviewer-payload";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -37,6 +38,7 @@ describe("published role result schemas", () => {
   it("publishes every schema and the stable role-result protocol subpath", () => {
     const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
     assert.equal(packageJson.exports["./role-result"], "./src/role-result.ts");
+    assert.equal(packageJson.exports["./goal-reviewer-payload"], "./src/goal-reviewer-payload.ts");
     assert.equal(packageJson.exports["./schemas/*"], "./schemas/*");
 
     const packed = JSON.parse(execFileSync(
@@ -51,5 +53,13 @@ describe("published role result schemas", () => {
     ]) {
       assert.ok(inventory.has(`schemas/${name}`), `${name} must be included in the npm package`);
     }
+  });
+
+  it("keeps the reviewer schema aligned with its canonical parser contract", () => {
+    const schema = JSON.parse(fs.readFileSync(path.join(root, "schemas", "goal-reviewer-payload-v1.schema.json"), "utf8"));
+    assert.equal(schema.$id, GOAL_REVIEWER_PAYLOAD_SCHEMA_ID);
+    assert.deepEqual(schema.properties.findings.items.required, ["id", "code", "severity", "subjectId", "reason", "evidenceRefs"]);
+    assert.equal(schema.properties.artifacts.items.properties.digest.pattern, "^(sha256:)?[0-9a-f]{64}$");
+    assert.equal(schema.properties.advisories.items.minLength, 1);
   });
 });
