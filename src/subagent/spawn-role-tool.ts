@@ -28,6 +28,11 @@ import { makeRoleSkillsOverride } from "./skills-override";
 import { discoverRoleSkillDirs } from "./role-skills-discovery";
 import type { SubagentProgressEvent } from "./runner";
 import { createRoleResultEnvelope, roleResultRef, type RoleResultEnvelopeV1 } from "../role-result";
+import {
+  appendRoleResultConstraints,
+  constrainRoleOutputSchema,
+  type RoleResultConstraints,
+} from "./result-constraints";
 
 // Resolves a role frontmatter model reference (bare id 'deepseek-v4-flash' or
 // 'provider/modelId') to a Model object using the tool execution context's
@@ -196,6 +201,11 @@ const Params = Type.Object({
   maxDepth: Type.Optional(Type.Number({ description: "Maximum nesting depth for recursive spawns. Default 5. Decrements per nesting level. Sub-agents at depth <=0 cannot spawn further." })),
   agentId: Type.Optional(Type.String({ description: "Wait for a background agent by its ID. If provided, blocks until the agent completes and returns its result (join mode)." })),
   retryCount: Type.Optional(Type.Number({ description: "P2-4: number of retries on abort/error (max 3, exponential backoff 500ms-2s). Default 0." })),
+  resultConstraints: Type.Optional(Type.Object({
+    criterionIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
+    evidenceIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
+    artifactUris: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
+  }, { description: "Optional exact-value constraints for typed reviewer result references. Applied to the child report schema and task prompt." })),
 });
 
 function okResult(details: unknown) {
@@ -208,7 +218,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
     label: "Spawn Role",
     description: "Spawn a role-scoped subagent with persona + tool whitelist + step limit. Foreground: blocks until the role reports its result via report_role_result. Returns {status, result|error, agentId}.",
     parameters: Params,
-    async execute(_toolCallId: string, params: { role?: string; roleDef?: InlineRoleDef; task: string; mode?: "foreground" | "background"; model?: string; maxTurns?: number; thinkingLevel?: string; maxDepth?: number; agentId?: string; retryCount?: number }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: ExtensionContext) {
+    async execute(_toolCallId: string, params: { role?: string; roleDef?: InlineRoleDef; task: string; mode?: "foreground" | "background"; model?: string; maxTurns?: number; thinkingLevel?: string; maxDepth?: number; agentId?: string; retryCount?: number; resultConstraints?: RoleResultConstraints }, signal: AbortSignal | undefined, _onUpdate: unknown, ctx: ExtensionContext) {
       // Join mode: wait for a background agent by its ID.
       if (params.agentId) {
         const rec = await deps.service.waitForResult(params.agentId);
@@ -257,6 +267,14 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         return okResult({ status: "error", error: resolved.error ?? "role resolution failed" });
       }
       const role = resolved.role;
+      let constrainedOutputSchema: ReportSchema;
+      let constrainedTask: string;
+      try {
+        constrainedOutputSchema = constrainRoleOutputSchema(role.outputSchema ?? DEFAULT_REPORT_SCHEMA, params.resultConstraints);
+        constrainedTask = appendRoleResultConstraints(params.task, params.resultConstraints);
+      } catch (error) {
+        return okResult({ status: "error", error: error instanceof Error ? error.message : String(error) });
+      }
 
       const persistRoleResult = (rec: SpawnToolRecord, payload?: Record<string, unknown>) => {
         const envelope = createRoleResultEnvelope({
@@ -362,7 +380,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
       // messages for the report_role_result toolCall (extractReportPayload), NOT via
       // this state — so an isolated per-child state avoids polluting the parent's.
       const childReportState: ReportState = { reported: new Set(), activeRole: new Map(), payloads: new Map() };
-      const childReportTool = makeReportTool({ state: childReportState, schema: role.outputSchema ?? DEFAULT_REPORT_SCHEMA, failedStep: role.name });
+      const childReportTool = makeReportTool({ state: childReportState, schema: constrainedOutputSchema, failedStep: role.name });
 
       const onSessionCreated = (sessionFile: string, roleName: string) => {
         deps.reportState.activeRole.set(sessionFile, roleName);
@@ -383,7 +401,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
 
       const id = deps.service.spawn({
         role: role.name,
-        task: params.task,
+        task: constrainedTask,
         parentSessionId: callerSessionFile,
         tools: childTools,
         maxTurns: params.maxTurns ?? role.maxTurns,
@@ -442,7 +460,7 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         // attempt 2 falsely hit duplicate_report. resourceLoader is stateless
         // (reconstructing re-reads 5 skills dirs = pessimization), so it's reused.
         const retryReportState: ReportState = { reported: new Set(), activeRole: new Map(), payloads: new Map() };
-        const retryReportTool = makeReportTool({ state: retryReportState, schema: role.outputSchema ?? DEFAULT_REPORT_SCHEMA, failedStep: role.name });
+        const retryReportTool = makeReportTool({ state: retryReportState, schema: constrainedOutputSchema, failedStep: role.name });
         // provider-abort workaround: agent-loop.js returns early on stopReason='aborted'
         // without draining the steering queue, so the output-contract enforcer's
         // agent_end reminder (queued via sendUserMessage->steer) never runs. Inject the
@@ -451,8 +469,8 @@ export function makeSpawnRoleTool(deps: SpawnToolDeps) {
         // provider-abort so step-limit/liveness aborts don't get a misleading message.
         const isProviderAbort = rec.status === "aborted" && rec.reason === "provider-abort";
         const retryTask = isProviderAbort
-          ? "[系统提示：上一次尝试因模型服务中断未完成，请重新执行任务并务必调用 report_role_result。]\n\n" + params.task
-          : params.task;
+          ? "[系统提示：上一次尝试因模型服务中断未完成，请重新执行任务并务必调用 report_role_result。]\n\n" + constrainedTask
+          : constrainedTask;
         const newId = deps.service.spawn({
           role: role.name,
           task: retryTask,

@@ -77,3 +77,5 @@ Return one structured `report_role_result` payload. `decision` must be exactly `
 Each blocking finding must have a stable `id`, machine-readable `code`, `severity` exactly `critical` or `major`, a criterion/claim/constraint `subjectId`, a concrete `reason`, and either non-empty `evidenceRefs` or a non-empty `missingEvidenceKind`. Use an empty string for `missingEvidenceKind` when evidenceRefs are present.
 
 For every artifact reviewed, return the submitted artifact URI verbatim, plus its bare lowercase 64-character SHA-256 hex digest and byte size. Do not prefix the digest with `sha256:`. Do not replace a relative URI with an absolute path. Base the decision on the structured fields; do not use symbolic verdict phrases or encode JSON inside strings.
+
+When `spawn_role` supplies runtime-enforced structured result constraints, those exact criterion IDs, evidence IDs, and artifact URIs are authoritative. A deterministic check ID is not a criterion ID. If `report_role_result` rejects a value, correct the structured payload and retry the report in the same review session; do not invent a replacement reference.
